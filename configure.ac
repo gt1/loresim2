@@ -1,4 +1,4 @@
-AC_INIT(loresim2,0.0.0,[tischler@mpi-cbg.de],[loresim2],[http://www.mpi-cbg.de])
+AC_INIT(loresim2,0.0.1,[tischler@mpi-cbg.de],[loresim2],[http://www.mpi-cbg.de])
 AC_CANONICAL_SYSTEM
 AC_PROG_LIBTOOL
 

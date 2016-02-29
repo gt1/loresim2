@@ -1,3 +1,9 @@
+loresim2 (0.0.2-1) unstable; urgency=medium
+
+  * add counting of unmapped reads in mapcheckstrict 
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 29 Feb 2016 13:05:50 +0100
+
 loresim2 (0.0.1-1) unstable; urgency=medium
 
   * Initial packaging release 

@@ -267,6 +267,8 @@ int main(int argc, char * argv[])
 		uint64_t g_ref_overlapbases = 0;
 		uint64_t g_ref_allbases = 0;
 
+		uint64_t unmapped = 0;
+
 		libmaus2::bambam::StrCmpNum const strcmpnum;
 		uint64_t c = 0;
 		uint64_t verbmod = 1024;
@@ -368,6 +370,10 @@ int main(int argc, char * argv[])
 							else
 								b_correct_seq_incorrect_strand.push_back(b_correct_seq[z]);
 					}
+				}
+				else
+				{
+					unmapped += 1;
 				}
 
 				bool anycross = false;
@@ -523,6 +529,7 @@ int main(int argc, char * argv[])
 
 		std::cerr << "[S] skip_a=" << skipa << std::endl;
 		std::cerr << "[S] skip_b=" << skipb << std::endl;
+		std::cerr << "[S] unmapped=" << unmapped << std::endl;
 		std::cerr << "[S] g_anycross=" << g_anycross << std::endl;
 		std::cerr << "[S] g_nocross=" << g_nocross << std::endl;
 		std::cerr << "[S] g_anyoverlap=" << g_anyoverlap << std::endl;

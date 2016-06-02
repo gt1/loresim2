@@ -15,6 +15,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <libmaus2/lcs/NNPLocalAligner.hpp>
 #include <libmaus2/util/ArgParser.hpp>
 #include <libmaus2/bambam/BamDecoder.hpp>
 #include <libmaus2/math/IntegerInterval.hpp>
@@ -170,6 +171,46 @@ double handleBlock(std::vector<libmaus2::dazzler::align::Overlap> & VOVL, libmau
 	return frac;
 }
 
+struct FastAGetter
+{
+	libmaus2::fastx::FastAReader::unique_ptr_type p;
+	libmaus2::fastx::FastAReader::pattern_type pattern;
+
+	FastAGetter(std::string const & fn) : p(fn.size() ? new libmaus2::fastx::FastAReader(fn) : NULL)
+	{
+
+	}
+
+	void getNext()
+	{
+		if ( p )
+			p->getNextPatternUnlocked(pattern);
+	}
+};
+
+#include <libmaus2/bambam/BamWriter.hpp>
+
+struct MissingOutput
+{
+	typedef MissingOutput this_type;
+	typedef libmaus2::util::unique_ptr<this_type>::type unique_ptr_type;
+
+	libmaus2::bambam::BamWriter BW;
+	libmaus2::aio::OutputStreamInstance OSI;
+
+	MissingOutput(std::string const & filename, libmaus2::bambam::BamHeader const & header)
+	: BW(filename+".bam",header), OSI(filename+".fasta")
+	{
+
+	}
+
+	void put(libmaus2::bambam::BamAlignment const & algn, libmaus2::fastx::Pattern const & pattern)
+	{
+		BW.writeAlignment(algn);
+		OSI << pattern;
+	}
+};
+
 int main(int argc, char * argv[])
 {
 	try
@@ -177,6 +218,30 @@ int main(int argc, char * argv[])
 		libmaus2::util::ArgParser const arg(argc,argv);
 		std::string const fn_a = arg[0];
 		std::string const fn_b = arg[1];
+		std::string fn_fasta;
+		if ( 2 < arg.size() )
+			fn_fasta = arg[2];
+		FastAGetter FAG(fn_fasta);
+
+
+		uint64_t verbmod = arg.uniqueArgPresent("V") ? arg.getUnsignedNumericArg<uint64_t>("V") : 1024;
+		std::string reference;
+		if ( arg.uniqueArgPresent("r") )
+			reference = arg["r"];
+		std::map<int64_t,std::string> Mref;
+		if ( reference.size() )
+		{
+			libmaus2::fastx::FastAReader F(reference);
+			libmaus2::fastx::FastAReader::pattern_type pattern;
+			uint64_t id = 0;
+			while ( F.getNextPatternUnlocked(pattern) )
+			{
+				for ( uint64_t i = 0; i < pattern.spattern.size(); ++i )
+					pattern.spattern[i] = libmaus2::fastx::mapChar(pattern.spattern[i]);
+				Mref[id++] = pattern.spattern;
+			}
+		}
+
 		#if 0
 		std::string const ovl_a = arg[2];
 		std::string const reffa = arg[3];
@@ -243,6 +308,12 @@ int main(int argc, char * argv[])
 		libmaus2::bambam::BamDecoder dec_b(fn_b);
 		libmaus2::bambam::BamHeader const & header_b = dec_b.getHeader();
 
+		MissingOutput::unique_ptr_type nooverlapOut(new MissingOutput("no_overlap_out",header_a));
+
+		libmaus2::lcs::NNPLocalAligner LA(6 /* bucket log */,14 /* k */,256*1024 /* max matches */,30 /* min band score */,50 /* min length */);
+
+		libmaus2::autoarray::AutoArray<libmaus2::bambam::cigar_operation> cigop;
+
 		BamPeeker apeeker(dec_a);
 		BamPeeker bpeeker(dec_b);
 
@@ -250,6 +321,7 @@ int main(int argc, char * argv[])
 		std::vector<libmaus2::bambam::BamAlignment::shared_ptr_type> Valgn_b;
 
 		apeeker.getNextRange(Valgn_a);
+		FAG.getNext();
 		bpeeker.getNextRange(Valgn_b);
 
 		uint64_t skipa = 0;
@@ -271,11 +343,12 @@ int main(int argc, char * argv[])
 
 		libmaus2::bambam::StrCmpNum const strcmpnum;
 		uint64_t c = 0;
-		uint64_t verbmod = 1024;
 		double mdiamacc = 0;
 		double mdiamcnt = 0;
 
 		double mdiamsum = 0;
+
+		uint64_t aid = 0;
 
 		while ( Valgn_a.size() && Valgn_b.size() )
 		{
@@ -302,32 +375,128 @@ int main(int argc, char * argv[])
 				assert ( Valgn_a.size() == 1 );
 				libmaus2::bambam::BamAlignment const & a_algn = *(Valgn_a.front());
 
+				if ( FAG.p )
+				{
+					assert ( FAG.pattern.getShortStringId() == a_algn.getName() );
+					// std::cerr << a_algn.getName() << " " << FAG.pattern.sid << std::endl;
+				}
+
+				std::string readdata = a_algn.getRead();
+				for ( uint64_t i = 0; i < readdata.size(); ++i )
+					readdata[i] = libmaus2::fastx::mapChar(readdata[i]);
+
+				uint64_t const numcig = libmaus2::bambam::BamAlignmentDecoderBase::getCigarOperations(Valgn_a[0]->D.begin(),cigop);
+
+				libmaus2::lcs::AlignmentTraceContainer ATC;
+				libmaus2::bambam::CigarStringParser::cigarToTrace(cigop.begin(),cigop.begin()+numcig,ATC);
+
+				std::pair<uint64_t,uint64_t> P_PP = ATC.prefixPositive();
+				std::pair<uint64_t,uint64_t> P_SP = ATC.suffixPositive();
+
+				// error intervals in reference coordinates
 				char const * c_eintv = a_algn.getAuxString("er");
+				// error intervals in query coordinates
 				char const * c_rintv = a_algn.getAuxString("ee");
 
 				std::vector<Intv> Vintv = c_eintv ? Intv::parse(std::string(c_eintv)) : std::vector<Intv>();
 				// std::vector<Intv> Rintv = c_rintv ? Intv::parse(std::string(c_rintv)) : std::vector<Intv>();
 				std::vector<Intv> Rintv = Intv::computeRIntv(Vintv, a_algn.D.begin());
 
+				// shift error intervals in query coordinates
 				for ( uint64_t i = 0; i < Rintv.size(); ++i )
 				{
 					Rintv[i].intv.from += a_algn.getFrontSoftClipping();
 					Rintv[i].intv.to += a_algn.getFrontSoftClipping();
 				}
 
-				#if 0
+
 				uint64_t frontdel = 0;
-				while ( zz < numcig && cigop[zz].first == libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_CDEL )
-					frontdel += cigop[zz++].second;
+				uint64_t zzz = 0;
+				while (
+					zzz < numcig
+					&&
+					cigop[zzz].first != libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_CMATCH
+					&&
+					cigop[zzz].first != libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_CEQUAL
+					&&
+					cigop[zzz].first != libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_CDIFF
+				)
+				{
+					switch ( cigop[zzz].first )
+					{
+						case libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_CDEL:
+							frontdel += cigop[zzz].second;
+							break;
+					}
 
-				int64_t const intvshift = a_algn.getPos() - frontdel;
+					zzz++;
+				}
 
+				// first reference base used in alignment
+				int64_t const refstartpos = a_algn.getPos() - frontdel;
+
+				// compute absolute intervals on reference
 				for ( uint64_t i = 0; i < Vintv.size(); ++i )
 				{
-					Vintv[i].intv.from += intvshift;
-					Vintv[i].intv.to += intvshift;
+					Vintv[i].intv.from += refstartpos;
+					Vintv[i].intv.to += refstartpos;
 				}
-				#endif
+
+
+
+				// perform self overlap analysis
+				std::vector< libmaus2::math::IntegerInterval<int64_t> > TIV;
+				if ( reference.size() )
+				{
+					assert ( a_algn.getRefID() >= 0 );
+					assert ( Mref.find(a_algn.getRefID()) != Mref.end() );
+					std::string const & ref = Mref.find(a_algn.getRefID())->second;
+					libmaus2::math::IntegerInterval<int64_t> RI = a_algn.getReferenceInterval();
+					RI.from -= frontdel;
+					RI.to -= frontdel;
+					assert ( RI.from >= 0 );
+					assert ( RI.to <= ref.size() );
+
+					std::string const sub = ref.substr(RI.from,RI.to+1-RI.from);
+
+					std::vector< std::pair<libmaus2::lcs::NNPAlignResult,libmaus2::lcs::NNPTraceContainer::shared_ptr_type> > V = LA.align(
+						sub.begin(),sub.end(),
+						sub.begin(),sub.end()
+					);
+
+					// std::cerr << "V.size()=" << V.size() << std::endl;
+
+					for ( uint64_t i = 0; i < V.size(); ++i )
+						if ( V[i].first.bbpos < V[i].first.aepos )
+						{
+							TIV.push_back(libmaus2::math::IntegerInterval<int64_t>(RI.from + V[i].first.abpos,RI.from + V[i].first.bepos));
+							// std::cerr << V[i].first << std::endl;
+						}
+					TIV = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(TIV);
+
+					#if 0
+					for ( uint64_t i = 0; i < TIV.size(); ++i )
+						std::cerr << TIV[i] << std::endl;
+					#endif
+
+					LA.returnAlignments(V);
+				}
+
+
+				if ( FAG.p )
+				{
+					std::string & sid = FAG.pattern.sid;
+
+					if ( FAG.pattern.sid.find("TAND") == std::string::npos )
+					{
+						std::ostringstream repaddstr;
+
+						for ( uint64_t i = 0; i < TIV.size(); ++i )
+							repaddstr << " TAND[" << TIV[i] << "]";
+
+						sid += repaddstr.str();
+					}
+				}
 
 				std::vector<libmaus2::bambam::BamAlignment::shared_ptr_type> b_mapped;
 				for ( uint64_t z = 0; z < Valgn_b.size(); ++z )
@@ -384,6 +553,22 @@ int main(int argc, char * argv[])
 				std::vector< libmaus2::math::IntegerInterval<int64_t> > Vcross_ref;
 
 				for ( uint64_t z = 0; z < b_correct_seq_correct_strand.size(); ++z )
+					if ( b_correct_seq_correct_strand[z]->getRead() != a_algn.getRead() )
+					{
+						std::string::size_type const p = a_algn.getRead().find(b_correct_seq_correct_strand[z]->getRead());
+
+						if ( p != std::string::npos )
+						{
+							std::string cigstr = b_correct_seq_correct_strand[z]->getCigarString();
+							std::ostringstream ostr;
+							ostr << p << 'H';
+							ostr << cigstr;
+							ostr << a_algn.getRead().size() - b_correct_seq_correct_strand[z]->getRead().size() - p << 'H';
+							b_correct_seq_correct_strand[z]->replaceCigarString(ostr.str());
+						}
+					}
+
+				for ( uint64_t z = 0; z < b_correct_seq_correct_strand.size(); ++z )
 				{
 					#if 0
 					std::cerr
@@ -415,17 +600,102 @@ int main(int argc, char * argv[])
 					}
 				}
 
+				// merge intervals on read (overlap + cross)
 				Voverlap_read = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Voverlap_read);
 				Vcross_read = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Vcross_read);
 
+				// merge intervals on reference (overlap + cross)
 				Voverlap_ref = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Voverlap_ref);
 				Vcross_ref = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Vcross_ref);
 
 				std::vector< libmaus2::math::IntegerInterval<int64_t> >
-					notCrossed_read = libmaus2::math::IntegerInterval<int64_t>::difference(
-						a_algn.getCoveredReadInterval(),
-						Vcross_read
-					);
+					notCrossed_read = libmaus2::math::IntegerInterval<int64_t>::difference(a_algn.getCoveredReadInterval(),Vcross_read);
+				std::vector< libmaus2::math::IntegerInterval<int64_t> >
+					notCrossed_ref = libmaus2::math::IntegerInterval<int64_t>::difference(a_algn.getReferenceInterval(),Vcross_ref);
+
+				if ( notCrossed_ref.size() )
+				{
+					#if 0
+					for ( uint64_t i = 0; i < Vintv.size(); ++i )
+						std::cerr << Vintv[i] << std::endl;
+					#endif
+					libmaus2::math::IntegerInterval<int64_t> const RI = a_algn.getReferenceInterval();
+
+					for ( uint64_t j = 0; j < notCrossed_ref.size(); ++j )
+					{
+						bool const front = (RI.from == notCrossed_ref[j].from);
+						bool const back = (RI.to == notCrossed_ref[j].to);
+
+						// error fragments we count at all
+						double const errthres = 0.15;
+						// allow front/back clipping of this number of bases without reporting them as missing
+						uint64_t const frontbackclipallow = 20;
+						// allow this many low error bases to be missed without reporting
+						uint64_t const lowerrallow = 150;
+
+						if ( (front || back) && (notCrossed_ref[j].diameter() <= static_cast<int64_t>(frontbackclipallow)) )
+							continue;
+
+						// get minimum error rate over all relevant intervals
+						double minerr = std::numeric_limits<double>::max();
+						for ( uint64_t i = 0; i < Vintv.size(); ++i )
+							if ( ! notCrossed_ref[j].intersection(Vintv[i].intv).isEmpty() )
+								if ( Vintv[i].erate < minerr )
+									minerr = Vintv[i].erate;
+
+						// if all error rates are too high
+						if ( minerr >= errthres )
+							continue;
+
+						// count number of low error rate bases
+						uint64_t lowerrbases = 0;
+						for ( uint64_t i = 0; i < Vintv.size(); ++i )
+							if ( ! notCrossed_ref[j].intersection(Vintv[i].intv).isEmpty() )
+								if ( Vintv[i].erate <= errthres )
+									lowerrbases += notCrossed_ref[j].intersection(Vintv[i].intv).diameter();
+
+						// ignore if number is sufficiently low
+						if ( lowerrbases <= lowerrallow )
+							continue;
+
+						std::cerr << "not crossed on reference " << notCrossed_ref[j] << " " << RI << " " << minerr << " " << P_PP.first << "," << P_SP.first << " lowerr=" << lowerrbases;
+
+						if ( front )
+							std::cerr << " front";
+						if ( back )
+							std::cerr << " back";
+
+						for ( uint64_t i = 0; i < Vintv.size(); ++i )
+							if ( ! notCrossed_ref[j].intersection(Vintv[i].intv).isEmpty() )
+								std::cerr << " " << Vintv[i];
+
+						std::cerr << std::endl;
+
+						for ( uint64_t i = 0; i < TIV.size(); ++i )
+							if ( ! TIV[i].intersection(notCrossed_ref[j]).isEmpty() )
+								std::cerr << TIV[i] << std::endl;
+
+						#if 0
+						for ( uint64_t z = 0; z < b_mapped.size(); ++z )
+						{
+							::libmaus2::bambam::BamFormatAuxiliary aux;
+							b_mapped[z]->formatAlignment(std::cerr,header_b,aux);
+							std::cerr << std::endl;
+						}
+						#endif
+
+						#if 0
+						std::cerr << "crossed: ";
+						for ( uint64_t i = 0; i < Vcross_ref.size(); ++i )
+							std::cerr << Vcross_ref[i];
+						std::cerr << std::endl;
+						std::cerr << "overlap: ";
+						for ( uint64_t i = 0; i < Vcross_ref.size(); ++i )
+							std::cerr << Voverlap_ref[i];
+						std::cerr << std::endl;
+						#endif
+					}
+				}
 
 				#if 0
 				for ( uint64_t i = 0; i < notCrossed_read.size(); ++i )
@@ -472,6 +742,11 @@ int main(int argc, char * argv[])
 				else
 					g_nooverlap += 1;
 
+				if ( ! anyoverlap && FAG.p )
+				{
+					nooverlapOut->put(a_algn,FAG.pattern);
+				}
+
 				g_read_cross_bases += read_cross_bases;
 				g_read_overlapbases += ovl_read_bases;
 
@@ -485,7 +760,10 @@ int main(int argc, char * argv[])
 				{
 					std::cerr << "[D] "
 						<< c << " "
-						<< a_algn.getName() << " " << a_algn.getReferenceLength() << " " << a_algn.getErrorRate()
+						<< a_algn.getName()
+						<< ","
+						<< a_algn.isReverse()
+						<< " " << a_algn.getReferenceLength() << " " << a_algn.getErrorRate()
 						<< " correct seq/strand " << b_correct_seq_correct_strand.size()
 						<< " wrong strand " << b_correct_seq_incorrect_strand.size()
 						<< " wrong seq " << b_incorrect_seq.size()
@@ -501,6 +779,7 @@ int main(int argc, char * argv[])
 				}
 
 				apeeker.getNextRange(Valgn_a);
+				FAG.getNext();
 				bpeeker.getNextRange(Valgn_b);
 			}
 			else
@@ -516,6 +795,7 @@ int main(int argc, char * argv[])
 					g_ref_allbases += Valgn_a[0]->getReferenceLength();
 					mdiamcnt += 1;
 					apeeker.getNextRange(Valgn_a);
+					FAG.getNext();
 					++skipa;
 				}
 				else if ( cmp > 0 )
@@ -547,490 +827,6 @@ int main(int argc, char * argv[])
 
 		std::cerr << "[S] mdiam avg " << mdiamacc/mdiamcnt << std::endl;
 		std::cerr << "[S] mdiam sum avg " << mdiamsum / g_read_allbases << std::endl;
-
-		#if 0
-		std::cerr << "[V] Reading alignments...";
-		while ( dec_a.readAlignment() )
-			Valgn_a.push_back(dec_a.getAlignment().sclone());
-		while ( dec_b.readAlignment() )
-			Valgn_b.push_back(dec_b.getAlignment().sclone());
-		std::cerr << "done." << std::endl;
-
-		libmaus2::bambam::StrCmpNum const strcmpnum;
-		::libmaus2::bambam::BamFormatAuxiliary aux;
-		libmaus2::autoarray::AutoArray<libmaus2::bambam::cigar_operation> Acigop;
-		libmaus2::autoarray::AutoArray<libmaus2::bambam::cigar_operation> Bcigop;
-
-		libmaus2::lcs::AlignmentTraceContainer ATC_a;
-		libmaus2::lcs::AlignmentTraceContainer ATC_b;
-
-		typedef std::vector<libmaus2::bambam::BamAlignment::shared_ptr_type>::const_iterator iterator;
-		iterator a_itc = Valgn_a.begin();
-		iterator b_itc = Valgn_b.begin();
-
-		uint64_t numcross = 0;
-		uint64_t numwrongstrand = 0;
-		uint64_t numwrongrefid = 0;
-		uint64_t numnocross = 0;
-		uint64_t numnoprima = 0;
-		uint64_t numnoprimb = 0;
-		uint64_t skipa = 0;
-		uint64_t skipb = 0;
-		double fracsum = 0;
-
-		while ( a_itc != Valgn_a.end() && b_itc != Valgn_b.end() )
-		{
-			std::string const a_name = (*a_itc)->getName();
-			std::string const b_name = (*b_itc)->getName();
-			std::string shorter_name, longer_name;
-
-			if ( a_name.size() <= b_name.size() )
-			{
-				shorter_name = a_name;
-				longer_name = b_name;
-			}
-			else
-			{
-				shorter_name = b_name;
-				longer_name = a_name;
-			}
-
-			std::string const longer_prefix = longer_name.substr(0,shorter_name.size());
-
-			// same name
-			if ( longer_prefix == shorter_name )
-			{
-				std::cerr << std::string(80,'-') << std::endl;
-
-				assert ( readnametoid.find(b_name) != readnametoid.end() );
-				OVL.bread = readnametoid.find(b_name)->second;
-				typedef std::vector<libmaus2::dazzler::align::Overlap>::const_iterator o_it;
-				std::pair<o_it,o_it> const OP = std::equal_range(VO.begin(),VO.end(),OVL,OverlapBComparator());
-
-				uint64_t const b_padreadlen = (readoff.at(OVL.bread+1)-readoff.at(OVL.bread))/2;
-				uint64_t const b_readlen = b_padreadlen - 2;
-
-				#if 0
-				uint64_t cc = 0;
-				for ( uint64_t i = 0; i < VO.size(); ++i )
-					if ( VO[i].bread == OVL.bread )
-						++cc;
-				#endif
-
-				iterator a_top = a_itc;
-				while ( a_top != Valgn_a.end() && strcmpnum.strcmpnum((*a_itc)->getName(),(*a_top)->getName()) == 0 )
-					++a_top;
-				iterator b_top = b_itc;
-				while ( b_top != Valgn_b.end() && strcmpnum.strcmpnum((*b_itc)->getName(),(*b_top)->getName()) == 0 )
-					++b_top;
-
-				std::cerr << (*a_itc)->getName() << " " << (a_top-a_itc) << " " << (b_top-b_itc) << " " << OP.second-OP.first << " " << OVL.bread << std::endl;
-
-				//assert ( OP.second-OP.first == b_top-b_itc );
-
-				for ( o_it it = OP.first; it != OP.second; ++it )
-				{
-					libmaus2::dazzler::align::Overlap const & OVL = *it;
-					char const * adata = refdata.c_str() + refoff.at(OVL.aread) + 1;
-
-					bool const isinv = OVL.isInverse();
-					uint64_t const padreadlen = (readoff.at(OVL.bread+1)-readoff.at(OVL.bread))/2;
-					uint64_t const readlen = padreadlen - 2;
-					char const * bdata = readdata.c_str() + readoff.at(OVL.bread) + (isinv ? padreadlen+1 : 1);
-
-					libmaus2::lcs::AlignmentTraceContainer ATC;
-					libmaus2::lcs::NP aligner;
-
-					libmaus2::dazzler::align::Overlap::computeTracePreMapped(
-						OVL.path.path.begin(),OVL.path.path.size(),OVL.path.abpos,OVL.path.aepos,OVL.path.bbpos,OVL.path.bepos,
-						reinterpret_cast<uint8_t const *>(adata),reinterpret_cast<uint8_t const *>(bdata),tspace,ATC,aligner);
-
-					libmaus2::autoarray::AutoArray< std::pair<libmaus2::lcs::AlignmentTraceContainer::step_type,uint64_t> > Aopblocks;
-					libmaus2::autoarray::AutoArray<libmaus2::bambam::cigar_operation> Aop;
-
-					uint64_t const numcig = libmaus2::bambam::CigarStringParser::traceToCigar(ATC,Aopblocks,Aop,0 /* hard clip left */,
-						OVL.path.bbpos,readlen - OVL.path.bepos,0 /* hard clip right */
-					);
-					std::string const cigstr = libmaus2::bambam::CigarStringParser::cigarBlocksToString(Aop.begin(),numcig);
-					// std::cerr << "OVL " << isinv << " "  << cigstr << std::endl;
-				}
-
-				#if 0
-				for ( iterator it = b_itc; it != b_top; ++it )
-				{
-					std::cerr << (*it)->getCigarString() << std::endl;
-				}
-				#endif
-
-				if ( a_top - a_itc != 1 )
-				{
-					std::cerr << "[E] ambiguous for " << a_name << " " << b_name << std::endl;
-					assert ( a_top-a_itc == 1 );
-				}
-
-				std::vector<std::pair<int64_t,int64_t> > Amappos;
-				(*a_itc)->getMappingPositionPairs(Amappos);
-				std::sort(Amappos.begin(),Amappos.end());
-
-				std::vector<std::pair<int64_t,int64_t> > ABmappos;
-
-				bool anycross = false;
-				uint64_t numcorrectseq = 0;
-				int64_t mindist = std::numeric_limits<int64_t>::max();
-				iterator best;
-				int64_t bestdist = std::numeric_limits<int64_t>::max();
-
-				for ( iterator it = b_itc; it != b_top; ++it )
-				{
-					libmaus2::bambam::BamAlignment::shared_ptr_type const & prim_a = *a_itc;
-					libmaus2::bambam::BamAlignment::shared_ptr_type const & prim_b = *it;
-
-					std::vector<std::pair<int64_t,int64_t> > Bmappos;
-
-					bool const ccross = ::libmaus2::bambam::BamAlignment::cross(*prim_a,*prim_b);
-
-					anycross = anycross || ccross;
-
-					if ( ccross )
-					{
-						best = it;
-						bestdist = -1;
-						mindist = 0;
-
-						prim_b->getMappingPositionPairs(Bmappos);
-						std::sort(Bmappos.begin(),Bmappos.end());
-						std::vector<std::pair<int64_t,int64_t> > inters;
-						std::set_intersection(
-							Amappos.begin(),Amappos.end(),
-							Bmappos.begin(),Bmappos.end(),
-							std::back_insert_iterator< std::vector<std::pair<int64_t,int64_t> > >(inters)
-						);
-						std::copy(inters.begin(),inters.end(),std::back_insert_iterator< std::vector<std::pair<int64_t,int64_t> > >(ABmappos));
-						ABmappos.resize( std::unique(ABmappos.begin(),ABmappos.end()) - ABmappos.begin() );
-					}
-					else
-					{
-						if ( prim_a->getRefID() != prim_b->getRefID() )
-						{
-
-						}
-						else if ( prim_a->isReverse() != prim_b->isReverse() )
-						{
-
-						}
-						else
-						{
-							numcorrectseq += 1;
-
-							libmaus2::math::IntegerInterval<int64_t> const aintv = prim_a->getReferenceInterval();
-							libmaus2::math::IntegerInterval<int64_t> const bintv = prim_b->getReferenceInterval();
-
-							if ( ! aintv.intersection(bintv).isEmpty() )
-							{
-								if ( bestdist > 0 )
-								{
-									mindist = 0;
-									bestdist = 0;
-									best = it;
-								}
-							}
-							else
-							{
-								int64_t avdist;
-
-								if ( aintv.from > bintv.to )
-									avdist = aintv.from- bintv.to;
-								else
-									avdist = bintv.from - aintv.to;
-
-								if ( avdist < mindist )
-								{
-									mindist = avdist;
-									bestdist = avdist;
-									best = it;
-								}
-							}
-
-						}
-					}
-
-					#if 0
-					std::cerr << "ccross=" << ccross << " " << prim_b->getCigarString() << std::endl;
-
-					if ( prim_a->getRefID() != prim_b->getRefID() )
-					{
-
-					}
-					else if ( prim_a->isReverse() != prim_b->isReverse() )
-					{
-
-					}
-					else
-					{
-						numcorrectseq += 1;
-
-						uint64_t const start_a_r = prim_a->getPos();
-						uint64_t const start_a_q = keep_soft_clipping ? prim_a->getFrontSoftClipping() : 0;
-						uint64_t const start_b_r = prim_b->getPos();
-						uint64_t const start_b_q = keep_soft_clipping ? prim_b->getFrontSoftClipping() : 0;
-
-						uint32_t const num_cig_a = prim_a->getCigarOperations(Acigop);
-						uint32_t const num_cig_b = prim_b->getCigarOperations(Bcigop);
-
-						libmaus2::bambam::CigarStringParser::cigarToTrace(Acigop.begin(),Acigop.begin()+num_cig_a,ATC_a,true /* ignore unknown */);
-						libmaus2::bambam::CigarStringParser::cigarToTrace(Bcigop.begin(),Bcigop.begin()+num_cig_b,ATC_b,true /* ignore unknown */);
-
-						uint64_t offset_a = 0, offset_b = 0;
-						bool const cross = libmaus2::lcs::AlignmentTraceContainer::cross(
-							ATC_a,start_a_r /* ref pos */,start_a_q /* read pos */,offset_a,
-							ATC_b,start_b_r /* ref pos */,start_b_q /* read pos */,offset_b
-						);
-
-						int64_t const score_a = libmaus2::lcs::AlignmentTraceContainer::getScore(ATC_a.ta,ATC_a.te,1,1,1,1);
-						int64_t const score_b = libmaus2::lcs::AlignmentTraceContainer::getScore(ATC_b.ta,ATC_b.te,1,1,1,1);
-
-						if ( cross )
-						{
-							mindist = 0;
-
-							if ( bestdist >= 0 )
-							{
-								best = it;
-								bestdist = -1;
-							}
-						}
-						else
-						{
-							libmaus2::math::IntegerInterval<int64_t> const aintv = prim_a->getReferenceInterval();
-							libmaus2::math::IntegerInterval<int64_t> const bintv = prim_b->getReferenceInterval();
-
-							if ( ! aintv.intersection(bintv).isEmpty() )
-							{
-								if ( bestdist > 0 )
-								{
-									mindist = 0;
-									bestdist = 0;
-									best = it;
-								}
-							}
-							else
-							{
-								int64_t avdist;
-
-								if ( aintv.from > bintv.to )
-									avdist = aintv.from- bintv.to;
-								else
-									avdist = bintv.from - aintv.to;
-
-								if ( avdist < mindist )
-								{
-									mindist = avdist;
-									bestdist = avdist;
-									best = it;
-								}
-							}
-						}
-
-						anycross = anycross || cross;
-					}
-					#endif
-				}
-
-				if ( anycross )
-				{
-					numcross += 1;
-
-					uint64_t const a_size = Amappos.size();
-					uint64_t const ab_size = ABmappos.size();
-
-					double const frac = a_size ? static_cast<double>(ab_size)/static_cast<double>(a_size) : 0.0;
-					fracsum += frac;
-					std::cerr << "[V] frac " << frac << std::endl;
-				}
-				else
-				{
-					std::cerr << "[E] no cross " << (*a_itc)->getReferenceLength() << " correct seq " << numcorrectseq
-						<< " erate " << (*a_itc)->getErrorRate() << " maps " << (b_top-b_itc) << " mindist " << mindist << " best dist " << bestdist
-						<< (*a_itc)->getReferenceInterval()
-						<< " "
-						<< ((bestdist != std::numeric_limits<int64_t>::max()) ? (*best)->getReferenceInterval() : libmaus2::math::IntegerInterval<int64_t>::empty())
-						<< " "
-						<< (*a_itc)->getFrontSoftClipping() << " "
-						<< ((bestdist != std::numeric_limits<int64_t>::max()) ? (*best)->getFrontSoftClipping() : 0)
-						<< " "
-						<< ((bestdist != std::numeric_limits<int64_t>::max()) ? (*best)->getCigarString() : std::string())
-						<< std::endl;
-
-					std::cerr << (*a_itc)->getCigarString() << std::endl;
-
-					#if 0
-					if ( (*a_itc)->getReferenceLength() < 2048 )
-					{
-						std::cerr << (*a_itc)->getRead() << std::endl;
-					}
-					#endif
-
-					// if ( bestdist != std::numeric_limits<int64_t>::max() )
-					if ( bestdist <= 0 )
-					{
-						std::vector<std::pair<int64_t,int64_t> > MPPAV, MPPBV;
-						(*a_itc)->getMappingPositionPairs(MPPAV);
-						(*best)->getMappingPositionPairs(MPPBV);
-
-						uint64_t i = 0, j = 0;
-
-						while ( i < MPPAV.size() && j < MPPBV.size() )
-						{
-							if ( MPPAV[i].first < MPPBV[j].first )
-							{
-								std::cerr << MPPAV[i] << std::endl;
-								i++;
-							}
-							else if ( MPPAV[i].first > MPPBV[j].first )
-							{
-								std::cerr << "\t" << MPPBV[j] << std::endl;
-								j++;
-							}
-							else
-							{
-								std::cerr << MPPAV[i] << "\t" << MPPBV[j] << std::endl;
-								i++;
-								j++;
-
-							}
-						}
-						while ( i < MPPAV.size() )
-						{
-							std::cerr << MPPAV[i] << std::endl;
-							i++;
-						}
-						while ( j < MPPBV.size() )
-						{
-							std::cerr << "\t" << MPPBV[j] << std::endl;
-							j++;
-						}
-					}
-
-					numnocross += 1;
-				}
-
-				#if 0
-				libmaus2::bambam::BamAlignment::shared_ptr_type prim_a;
-				libmaus2::bambam::BamAlignment::shared_ptr_type prim_b;
-
-				for ( iterator it = a_itc; it != a_top; ++it )
-					if ( ! (*it)->isSecondary() )
-					{
-						prim_a = *it;
-						break;
-					}
-
-				for ( iterator it = b_itc; it != b_top; ++it )
-					if ( ! (*it)->isSecondary() )
-					{
-						prim_b = *it;
-						break;
-					}
-
-				if ( prim_a && prim_b )
-				{
-					#if 0
-					prim_a->formatAlignment(std::cerr,header_a,aux);
-					std::cerr.put('\n');
-					prim_b->formatAlignment(std::cerr,header_b,aux);
-					std::cerr.put('\n');
-					#endif
-
-					if ( prim_a->getRefID() != prim_b->getRefID() )
-					{
-						std::cerr << "[D] ref id mismatch" << std::endl;
-						numwrongrefid += 1;
-					}
-					else if ( prim_a->isReverse() != prim_b->isReverse() )
-					{
-						std::cerr << "[D] strand mismatch" << std::endl;
-						numwrongstrand += 1;
-					}
-					else
-					{
-						uint64_t const start_a_r = prim_a->getPos();
-						uint64_t const start_a_q = keep_soft_clipping ? prim_a->getFrontSoftClipping() : 0;
-						uint64_t const start_b_r = prim_b->getPos();
-						uint64_t const start_b_q = keep_soft_clipping ? prim_b->getFrontSoftClipping() : 0;
-
-						uint32_t const num_cig_a = prim_a->getCigarOperations(Acigop);
-						uint32_t const num_cig_b = prim_b->getCigarOperations(Bcigop);
-
-						libmaus2::bambam::CigarStringParser::cigarToTrace(Acigop.begin(),Acigop.begin()+num_cig_a,ATC_a,true /* ignore unknown */);
-						libmaus2::bambam::CigarStringParser::cigarToTrace(Bcigop.begin(),Bcigop.begin()+num_cig_b,ATC_b,true /* ignore unknown */);
-
-						uint64_t offset_a = 0, offset_b = 0;
-						bool const cross = libmaus2::lcs::AlignmentTraceContainer::cross(
-							ATC_a,start_a_r,start_a_q,offset_a,
-							ATC_b,start_b_r,start_b_q,offset_b
-						);
-
-						int64_t const score_a = libmaus2::lcs::AlignmentTraceContainer::getScore(ATC_a.ta,ATC_a.te,1,1,1,1);
-						int64_t const score_b = libmaus2::lcs::AlignmentTraceContainer::getScore(ATC_b.ta,ATC_b.te,1,1,1,1);
-
-						if ( cross )
-						{
-							std::cerr << "[D] crossing " << prim_a->getReferenceLength() << " " << prim_b->getReferenceLength() << " " << score_a << " " << score_b << std::endl;
-							numcross += 1;
-						}
-						else
-						{
-							libmaus2::math::IntegerInterval<int64_t> IA(prim_a->getPos(),prim_a->getPos()+prim_a->getReferenceLength()-1);
-							libmaus2::math::IntegerInterval<int64_t> IB(prim_b->getPos(),prim_b->getPos()+prim_b->getReferenceLength()-1);
-							std::cerr << "[D] no crossing " << IA << "," << IB << "," << prim_a->getFrontSoftClipping() << "," << prim_b->getFrontSoftClipping() << std::endl;
-							numnocross += 1;
-						}
-					}
-				}
-				else if ( ! prim_a )
-				{
-					std::cerr << "no prim a" << std::endl;
-					prim_b->formatAlignment(std::cerr,header_b,aux);
-					std::cerr.put('\n');
-					numnoprima += 1;
-				}
-				else if ( ! prim_b )
-				{
-					std::cerr << "no prim_b" << std::endl;
-					prim_a->formatAlignment(std::cerr,header_a,aux);
-					std::cerr.put('\n');
-					numnoprimb += 1;
-				}
-				#endif
-
-				a_itc = a_top;
-				b_itc = b_top;
-			}
-			else
-			{
-				int const cmp = strcmpnum.strcmpnum((*a_itc)->getName(),(*b_itc)->getName());
-
-				if ( cmp < 0 )
-				{
-					++a_itc;
-					++skipa;
-				}
-				else if ( cmp > 0 )
-				{
-					++b_itc;
-					++skipb;
-				}
-			}
-		}
-
-		std::cerr << "[V] numcross=" << numcross << std::endl;
-		std::cerr << "[V] numnocross=" << numnocross << std::endl;
-		std::cerr << "[V] numwrongrefid=" << numwrongrefid << std::endl;
-		std::cerr << "[V] numwrongstrand=" << numwrongstrand << std::endl;
-		std::cerr << "[V] skipa=" << skipa << std::endl;
-		std::cerr << "[V] skipb=" << skipb << std::endl;
-		std::cerr << "[V] avg frac=" << (numcross ? (fracsum / numcross) : 0.0) << std::endl;
-		#endif
 	}
 	catch(std::exception const & ex)
 	{

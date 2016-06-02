@@ -8,7 +8,7 @@ man_MANS = ${MANPAGES}
 
 EXTRA_DIST = ${MANPAGES}
 
-bin_PROGRAMS = longreadgen mapcheckstrict fastareformat
+bin_PROGRAMS = longreadgen mapcheckstrict fastareformat printmatchingkmers
 
 longreadgen_SOURCES = longreadgen.cpp
 longreadgen_LDADD = ${LIBMAUS2LIBS}
@@ -24,3 +24,8 @@ fastareformat_SOURCES = fastareformat.cpp
 fastareformat_LDADD = ${LIBMAUS2LIBS}
 fastareformat_LDFLAGS = ${AM_CPPFLAGS} ${LIBMAUS2CPPFLAGS} ${LIBMAUS2LDFLAGS} ${AM_LDFLAGS}
 fastareformat_CPPFLAGS = ${AM_CPPFLAGS} ${LIBMAUS2CPPFLAGS}
+
+printmatchingkmers_SOURCES = printmatchingkmers.cpp
+printmatchingkmers_LDADD = ${LIBMAUS2LIBS}
+printmatchingkmers_LDFLAGS = ${AM_CPPFLAGS} ${LIBMAUS2CPPFLAGS} ${LIBMAUS2LDFLAGS} ${AM_LDFLAGS}
+printmatchingkmers_CPPFLAGS = ${AM_CPPFLAGS} ${LIBMAUS2CPPFLAGS}

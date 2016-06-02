@@ -54,9 +54,9 @@ int main(int argc, char ** argv)
 		// deletion error fraction
 		double delrate = arginfo.getValue<double>("delrate",.3);
 		// insertion error fraction
-		double insrate = arginfo.getValue<double>("insrate",.45);
+		double insrate = arginfo.getValue<double>("insrate",.5);
 		// insertion homopolymer error fraction
-		double inshomopolrate = arginfo.getValue<double>("inshomopolrate",.05);
+		double inshomopolrate = arginfo.getValue<double>("inshomopolrate",.0);
 
 		// low error rate
 		double eratelow        = arginfo.getValue<double>("eratelow",.15);
@@ -223,7 +223,6 @@ int main(int argc, char ** argv)
 						if ( Vcigop[ind].first == libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_CDEL )
 							delshift += Vcigop[ind].second;
 					}
-
 
 					std::ostringstream padcigstr;
 					padcigstr << randlen << "S" << cig << randlen << "S";

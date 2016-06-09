@@ -48,6 +48,8 @@ int main(int argc, char * argv[])
 					uint32_t const numcig = algn.getCigarOperations(Acigop);
 					libmaus2::bambam::CigarStringParser::cigarToTrace(Acigop.begin(),Acigop.begin()+numcig, ATC, true);
 					uint64_t const fclip = libmaus2::bambam::BamAlignmentDecoderBase::getFrontClipping(algn.D.begin());
+					uint64_t const seqlen = dec_a.getHeader().getRefIDLength(algn.getRefID());
+					uint64_t const readlength = algn.getLseq();
 
 					uint64_t apos = algn.getPos();
 					uint64_t bpos = fclip;
@@ -82,8 +84,12 @@ int main(int argc, char * argv[])
 								}
 
 								if ( cnt >= k )
-									std::cout << cnt << "\t" << apos-cnt << "\t" << bpos-cnt << std::endl;
-
+								{
+									if ( algn.isReverse() )
+										std::cout << cnt << "\t" << seqlen-apos << "\t" << readlength-bpos << std::endl;
+									else
+										std::cout << cnt << "\t" << apos-cnt << "\t" << bpos-cnt << std::endl;
+								}
 								break;
 							}
 							default:

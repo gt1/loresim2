@@ -330,17 +330,27 @@ int main(int argc, char * argv[])
 
 		uint64_t skipa = 0;
 		uint64_t skipb = 0;
+
 		uint64_t g_anycross = 0;
 		uint64_t g_nocross = 0;
 		uint64_t g_anyoverlap = 0;
 		uint64_t g_nooverlap = 0;
 
+		uint64_t g_primaryanycross = 0;
+		uint64_t g_primarynocross = 0;
+		uint64_t g_primaryanyoverlap = 0;
+		uint64_t g_primarynooverlap = 0;
+
 		uint64_t g_read_cross_bases = 0;
 		uint64_t g_read_overlapbases = 0;
+		uint64_t g_read_cross_bases_primary = 0;
+		uint64_t g_read_overlapbases_primary = 0;
 		uint64_t g_read_allbases = 0;
 
 		uint64_t g_ref_cross_bases = 0;
 		uint64_t g_ref_overlapbases = 0;
+		uint64_t g_ref_cross_bases_primary = 0;
+		uint64_t g_ref_overlapbases_primary = 0;
 		uint64_t g_ref_allbases = 0;
 
 		uint64_t unmapped = 0;
@@ -446,8 +456,6 @@ int main(int argc, char * argv[])
 					Vintv[i].intv.to += refstartpos;
 				}
 
-
-
 				// perform self overlap analysis
 				std::vector< libmaus2::math::IntegerInterval<int64_t> > TIV;
 				if ( reference.size() )
@@ -506,6 +514,27 @@ int main(int argc, char * argv[])
 				for ( uint64_t z = 0; z < Valgn_b.size(); ++z )
 					if ( Valgn_b[z]->isMapped() )
 						b_mapped.push_back(Valgn_b[z]);
+
+				std::vector<libmaus2::bambam::BamAlignment::shared_ptr_type> b_primary;
+				for ( uint64_t z = 0; z < b_mapped.size(); ++z )
+					if (
+						!b_mapped[z]->isSecondary()
+						&&
+						!b_mapped[z]->isSupplementary()
+					)
+						b_primary.push_back(b_mapped[z]);
+				std::vector<libmaus2::bambam::BamAlignment::shared_ptr_type> b_primary_correct_seq;
+				for ( uint64_t z = 0; z < b_primary.size(); ++z )
+					if (
+						b_primary[z]->getRefID() == a_algn.getRefID()
+					)
+						b_primary_correct_seq.push_back(b_primary[z]);
+				std::vector<libmaus2::bambam::BamAlignment::shared_ptr_type> b_primary_correct_seq_correct_strand;
+				for ( uint64_t z = 0; z < b_primary_correct_seq.size(); ++z )
+					if (
+						b_primary_correct_seq[z]->isReverse() == a_algn.isReverse()
+					)
+						b_primary_correct_seq_correct_strand.push_back(b_primary_correct_seq[z]);
 
 				std::vector< libmaus2::math::IntegerInterval<int64_t> > Vreadmapped;
 				for ( uint64_t z = 0; z < b_mapped.size(); ++z )
@@ -604,6 +633,46 @@ int main(int argc, char * argv[])
 					}
 				}
 
+				bool primaryanyoverlap = false;
+				bool primaryanycross = false;
+				std::vector< libmaus2::math::IntegerInterval<int64_t> > Vprimaryoverlap_read;
+				std::vector< libmaus2::math::IntegerInterval<int64_t> > Vprimarycross_read;
+				std::vector< libmaus2::math::IntegerInterval<int64_t> > Vprimaryoverlap_ref;
+				std::vector< libmaus2::math::IntegerInterval<int64_t> > Vprimarycross_ref;
+
+				for ( uint64_t z = 0; z < b_primary_correct_seq_correct_strand.size(); ++z )
+				{
+					if ( !
+						a_algn.getReferenceInterval().intersection(
+							b_primary_correct_seq_correct_strand[z]->getReferenceInterval()
+						).isEmpty()
+					)
+					{
+						primaryanyoverlap = true;
+
+						bool const cross = libmaus2::bambam::BamAlignment::cross(a_algn,*(b_primary_correct_seq_correct_strand[z]));
+						primaryanycross = primaryanycross || cross;
+
+						if ( cross )
+							Vprimarycross_ref.push_back(b_primary_correct_seq_correct_strand[z]->getReferenceInterval());
+						Vprimaryoverlap_ref.push_back(b_primary_correct_seq_correct_strand[z]->getReferenceInterval());
+
+						if ( cross )
+							Vprimarycross_read.push_back(b_primary_correct_seq_correct_strand[z]->getCoveredReadInterval());
+						Vprimaryoverlap_read.push_back(b_primary_correct_seq_correct_strand[z]->getCoveredReadInterval());
+
+					}
+				}
+
+				if ( primaryanyoverlap )
+					g_primaryanyoverlap += 1;
+				else
+					g_primarynooverlap += 1;
+				if ( primaryanycross )
+					g_primaryanycross += 1;
+				else
+					g_primarynocross += 1;
+
 				// merge intervals on read (overlap + cross)
 				Voverlap_read = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Voverlap_read);
 				Vcross_read = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Vcross_read);
@@ -612,10 +681,23 @@ int main(int argc, char * argv[])
 				Voverlap_ref = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Voverlap_ref);
 				Vcross_ref = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Vcross_ref);
 
+				// merge intervals on read (overlap + cross)
+				Vprimaryoverlap_read = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Vprimaryoverlap_read);
+				Vprimarycross_read = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Vprimarycross_read);
+
+				// merge intervals on reference (overlap + cross)
+				Vprimaryoverlap_ref = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Vprimaryoverlap_ref);
+				Vprimarycross_ref = libmaus2::math::IntegerInterval<int64_t>::mergeTouchingOrOverlapping(Vprimarycross_ref);
+
 				std::vector< libmaus2::math::IntegerInterval<int64_t> >
 					notCrossed_read = libmaus2::math::IntegerInterval<int64_t>::difference(a_algn.getCoveredReadInterval(),Vcross_read);
 				std::vector< libmaus2::math::IntegerInterval<int64_t> >
 					notCrossed_ref = libmaus2::math::IntegerInterval<int64_t>::difference(a_algn.getReferenceInterval(),Vcross_ref);
+
+				std::vector< libmaus2::math::IntegerInterval<int64_t> >
+					primarynotCrossed_read = libmaus2::math::IntegerInterval<int64_t>::difference(a_algn.getCoveredReadInterval(),Vprimarycross_read);
+				std::vector< libmaus2::math::IntegerInterval<int64_t> >
+					primarynotCrossed_ref = libmaus2::math::IntegerInterval<int64_t>::difference(a_algn.getReferenceInterval(),Vprimarycross_ref);
 
 				if ( notCrossed_ref.size() )
 				{
@@ -720,6 +802,16 @@ int main(int argc, char * argv[])
 				for ( uint64_t z = 0; z < Vcross_ref.size(); ++z )
 					Vcross_ref[z] = a_algn.getReferenceInterval().intersection(Vcross_ref[z]);
 
+				for ( uint64_t z = 0; z < Vprimaryoverlap_read.size(); ++z )
+					Vprimaryoverlap_read[z] = a_algn.getCoveredReadInterval().intersection(Vprimaryoverlap_read[z]);
+				for ( uint64_t z = 0; z < Vprimarycross_read.size(); ++z )
+					Vprimarycross_read[z] = a_algn.getCoveredReadInterval().intersection(Vprimarycross_read[z]);
+
+				for ( uint64_t z = 0; z < Vprimaryoverlap_ref.size(); ++z )
+					Vprimaryoverlap_ref[z] = a_algn.getReferenceInterval().intersection(Vprimaryoverlap_ref[z]);
+				for ( uint64_t z = 0; z < Vprimarycross_ref.size(); ++z )
+					Vprimarycross_ref[z] = a_algn.getReferenceInterval().intersection(Vprimarycross_ref[z]);
+
 				uint64_t ovl_read_bases = 0;
 				for ( uint64_t z = 0; z < Voverlap_read.size(); ++z )
 					ovl_read_bases += Voverlap_read[z].diameter();
@@ -733,6 +825,20 @@ int main(int argc, char * argv[])
 				uint64_t ref_cross_bases = 0;
 				for ( uint64_t z = 0; z < Vcross_ref.size(); ++z )
 					ref_cross_bases += Vcross_ref[z].diameter();
+
+				uint64_t ovl_read_bases_primary = 0;
+				for ( uint64_t z = 0; z < Vprimaryoverlap_read.size(); ++z )
+					ovl_read_bases_primary += Vprimaryoverlap_read[z].diameter();
+				uint64_t read_cross_bases_primary = 0;
+				for ( uint64_t z = 0; z < Vprimarycross_read.size(); ++z )
+					read_cross_bases_primary += Vprimarycross_read[z].diameter();
+
+				uint64_t ovl_ref_bases_primary = 0;
+				for ( uint64_t z = 0; z < Vprimaryoverlap_ref.size(); ++z )
+					ovl_ref_bases_primary += Vprimaryoverlap_ref[z].diameter();
+				uint64_t ref_cross_bases_primary = 0;
+				for ( uint64_t z = 0; z < Vprimarycross_ref.size(); ++z )
+					ref_cross_bases_primary += Vprimarycross_ref[z].diameter();
 
 				if ( anycross )
 					g_anycross += 1;
@@ -755,6 +861,12 @@ int main(int argc, char * argv[])
 				g_ref_cross_bases += ref_cross_bases;
 				g_ref_overlapbases += ovl_ref_bases;
 
+				g_read_cross_bases_primary += read_cross_bases_primary;
+				g_read_overlapbases_primary += ovl_read_bases_primary;
+
+				g_ref_cross_bases_primary += ref_cross_bases_primary;
+				g_ref_overlapbases_primary += ovl_ref_bases_primary;
+
 				g_ref_allbases += a_algn.getReferenceLength();
 				g_read_allbases += a_algn.getCoveredReadInterval().diameter();
 
@@ -771,12 +883,18 @@ int main(int argc, char * argv[])
 						<< " wrong seq " << b_incorrect_seq.size()
 						<< " cross " << anycross
 						<< " overlap " << anyoverlap
+						<< " pcross " << primaryanycross
+						<< " poverlap " << primaryanyoverlap
 						<< " read_cross_bases " << read_cross_bases << " " << (static_cast<double>(read_cross_bases) / a_algn.getCoveredReadInterval().diameter())
 						<< " ovl_read_bases " << ovl_read_bases << " " << (static_cast<double>(ovl_read_bases) / a_algn.getCoveredReadInterval().diameter())
 						<< " " << static_cast<double>(g_read_overlapbases) / g_read_allbases
 						<< " " << static_cast<double>(g_read_cross_bases) / g_read_allbases
 						<< " " << static_cast<double>(g_ref_overlapbases) / g_ref_allbases
 						<< " " << static_cast<double>(g_ref_cross_bases) / g_ref_allbases
+						<< " " << static_cast<double>(g_read_overlapbases_primary) / g_read_allbases
+						<< " " << static_cast<double>(g_read_cross_bases_primary) / g_read_allbases
+						<< " " << static_cast<double>(g_ref_overlapbases_primary) / g_ref_allbases
+						<< " " << static_cast<double>(g_ref_cross_bases_primary) / g_ref_allbases
 						<< std::endl;
 				}
 
@@ -816,6 +934,10 @@ int main(int argc, char * argv[])
 		std::cerr << "[S] g_nocross=" << g_nocross << std::endl;
 		std::cerr << "[S] g_anyoverlap=" << g_anyoverlap << std::endl;
 		std::cerr << "[S] g_nooverlap=" << g_nooverlap << std::endl;
+		std::cerr << "[S] g_primaryanycross=" << g_primaryanycross << std::endl;
+		std::cerr << "[S] g_primarynocross=" << g_primarynocross << std::endl;
+		std::cerr << "[S] g_primaryanyoverlap=" << g_primaryanyoverlap << std::endl;
+		std::cerr << "[S] g_primarynooverlap=" << g_primarynooverlap << std::endl;
 		if ( g_read_allbases )
 		{
 			std::cerr << "[S] read overlap fraction=" << static_cast<double>(g_read_overlapbases) / g_read_allbases << std::endl;
@@ -825,6 +947,16 @@ int main(int argc, char * argv[])
 		{
 			std::cerr << "[S] ref overlap fraction=" << static_cast<double>(g_ref_overlapbases) / g_ref_allbases << std::endl;
 			std::cerr << "[S] ref cross fraction=" << static_cast<double>(g_ref_cross_bases) / g_ref_allbases << std::endl;
+		}
+		if ( g_read_allbases )
+		{
+			std::cerr << "[S] primary read overlap fraction=" << static_cast<double>(g_read_overlapbases_primary) / g_read_allbases << std::endl;
+			std::cerr << "[S] primary read cross fraction=" << static_cast<double>(g_read_cross_bases_primary) / g_read_allbases << std::endl;
+		}
+		if ( g_ref_allbases )
+		{
+			std::cerr << "[S] primary ref overlap fraction=" << static_cast<double>(g_ref_overlapbases_primary) / g_ref_allbases << std::endl;
+			std::cerr << "[S] primary ref cross fraction=" << static_cast<double>(g_ref_cross_bases_primary) / g_ref_allbases << std::endl;
 		}
 
 		std::cerr << "[S] mdiam avg " << mdiamacc/mdiamcnt << std::endl;

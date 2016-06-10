@@ -223,6 +223,10 @@ int main(int argc, char * argv[])
 			fn_fasta = arg[2];
 		FastAGetter FAG(fn_fasta);
 
+		// error fragments we count at all
+		double const errthres = arg.uniqueArgPresent("e") ? arg.getParsedArg<double>("e") : 0.15;
+		// allow this many low error bases to be missed without reporting
+		uint64_t const lowerrallow = arg.uniqueArgPresent("L") ? arg.getUnsignedNumericArg<uint64_t>("L") : 150;
 
 		uint64_t verbmod = arg.uniqueArgPresent("V") ? arg.getUnsignedNumericArg<uint64_t>("V") : 1024;
 		std::string reference;
@@ -626,8 +630,6 @@ int main(int argc, char * argv[])
 						bool const front = (RI.from == notCrossed_ref[j].from);
 						bool const back = (RI.to == notCrossed_ref[j].to);
 
-						// error fragments we count at all
-						double const errthres = 0.15;
 						// allow front/back clipping of this number of bases without reporting them as missing
 						uint64_t const frontbackclipallow = 20;
 						// allow this many low error bases to be missed without reporting

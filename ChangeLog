@@ -1,3 +1,9 @@
+loresim2 (0.0.4-1) unstable; urgency=medium
+
+  * cleanup and output missing reads in mapcheckstrict even if not fasta reads file is given
+
+ -- German Tischler <tischler@mpi-cbg.de>  Thu, 16 Jun 2016 13:25:15 +0200
+
 loresim2 (0.0.3-1) unstable; urgency=medium
 
   * various improvements in mapcheckstrict (self alignment/tandem repeat checks, high error rate intervals)

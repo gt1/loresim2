@@ -195,11 +195,17 @@ struct MissingOutput
 	typedef MissingOutput this_type;
 	typedef libmaus2::util::unique_ptr<this_type>::type unique_ptr_type;
 
+	std::string const bamfilename;
 	libmaus2::bambam::BamWriter BW;
-	libmaus2::aio::OutputStreamInstance OSI;
+	std::string const fastafilename;
+	libmaus2::aio::OutputStreamInstance::unique_ptr_type OSI;
 
 	MissingOutput(std::string const & filename, libmaus2::bambam::BamHeader const & header)
-	: BW(filename+".bam",header), OSI(filename+".fasta")
+	:
+		bamfilename(filename+".bam"),
+		BW(bamfilename,header),
+		fastafilename(filename+".fasta"),
+		OSI(new libmaus2::aio::OutputStreamInstance(fastafilename))
 	{
 
 	}
@@ -207,7 +213,12 @@ struct MissingOutput
 	void put(libmaus2::bambam::BamAlignment const & algn, libmaus2::fastx::Pattern const & pattern)
 	{
 		BW.writeAlignment(algn);
-		OSI << pattern;
+		(*OSI) << pattern;
+	}
+
+	void put(libmaus2::bambam::BamAlignment const & algn)
+	{
+		BW.writeAlignment(algn);
 	}
 };
 
@@ -310,7 +321,7 @@ int main(int argc, char * argv[])
 		libmaus2::bambam::BamDecoder dec_a(fn_a);
 		libmaus2::bambam::BamHeader const & header_a = dec_a.getHeader();
 		libmaus2::bambam::BamDecoder dec_b(fn_b);
-		libmaus2::bambam::BamHeader const & header_b = dec_b.getHeader();
+		// libmaus2::bambam::BamHeader const & header_b = dec_b.getHeader();
 
 		MissingOutput::unique_ptr_type nooverlapOut(new MissingOutput("no_overlap_out",header_a));
 
@@ -362,7 +373,7 @@ int main(int argc, char * argv[])
 
 		double mdiamsum = 0;
 
-		uint64_t aid = 0;
+		// uint64_t aid = 0;
 
 		while ( Valgn_a.size() && Valgn_b.size() )
 		{
@@ -410,7 +421,7 @@ int main(int argc, char * argv[])
 				// error intervals in reference coordinates
 				char const * c_eintv = a_algn.getAuxString("er");
 				// error intervals in query coordinates
-				char const * c_rintv = a_algn.getAuxString("ee");
+				//char const * c_rintv = a_algn.getAuxString("ee");
 
 				std::vector<Intv> Vintv = c_eintv ? Intv::parse(std::string(c_eintv)) : std::vector<Intv>();
 				// std::vector<Intv> Rintv = c_rintv ? Intv::parse(std::string(c_rintv)) : std::vector<Intv>();
@@ -467,7 +478,7 @@ int main(int argc, char * argv[])
 					RI.from -= frontdel;
 					RI.to -= frontdel;
 					assert ( RI.from >= 0 );
-					assert ( RI.to <= ref.size() );
+					assert ( RI.to <= static_cast<int64_t>(ref.size()) );
 
 					std::string const sub = ref.substr(RI.from,RI.to+1-RI.from);
 
@@ -715,7 +726,7 @@ int main(int argc, char * argv[])
 						// allow front/back clipping of this number of bases without reporting them as missing
 						uint64_t const frontbackclipallow = 20;
 						// allow this many low error bases to be missed without reporting
-						uint64_t const lowerrallow = 150;
+						//uint64_t const lowerrallow = 150;
 
 						if ( (front || back) && (notCrossed_ref[j].diameter() <= static_cast<int64_t>(frontbackclipallow)) )
 							continue;
@@ -850,9 +861,12 @@ int main(int argc, char * argv[])
 				else
 					g_nooverlap += 1;
 
-				if ( ! anyoverlap && FAG.p )
+				if ( ! anyoverlap )
 				{
-					nooverlapOut->put(a_algn,FAG.pattern);
+					if ( FAG.p )
+						nooverlapOut->put(a_algn,FAG.pattern);
+					else
+						nooverlapOut->put(a_algn);
 				}
 
 				g_read_cross_bases += read_cross_bases;
@@ -961,6 +975,12 @@ int main(int argc, char * argv[])
 
 		std::cerr << "[S] mdiam avg " << mdiamacc/mdiamcnt << std::endl;
 		std::cerr << "[S] mdiam sum avg " << mdiamsum / g_read_allbases << std::endl;
+
+		nooverlapOut.reset();
+		if ( ! (FAG.p) )
+		{
+
+		}
 	}
 	catch(std::exception const & ex)
 	{

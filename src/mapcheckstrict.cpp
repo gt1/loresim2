@@ -257,6 +257,7 @@ int main(int argc, char * argv[])
 			}
 		}
 
+
 		#if 0
 		std::string const ovl_a = arg[2];
 		std::string const reffa = arg[3];
@@ -324,6 +325,11 @@ int main(int argc, char * argv[])
 		// libmaus2::bambam::BamHeader const & header_b = dec_b.getHeader();
 
 		MissingOutput::unique_ptr_type nooverlapOut(new MissingOutput("no_overlap_out",header_a));
+
+		libmaus2::bambam::BamWriter::unique_ptr_type primaryCrossedBW(new libmaus2::bambam::BamWriter("primary_crossed.bam",header_a));
+		libmaus2::bambam::BamWriter::unique_ptr_type anyCrossedBW(new libmaus2::bambam::BamWriter("any_crossed.bam",header_a));
+		libmaus2::bambam::BamWriter::unique_ptr_type primaryOverlapBW(new libmaus2::bambam::BamWriter("primary_overlap.bam",header_a));
+		libmaus2::bambam::BamWriter::unique_ptr_type anyOverlapBW(new libmaus2::bambam::BamWriter("any_overlap.bam",header_a));
 
 		libmaus2::lcs::NNPLocalAligner LA(6 /* bucket log */,14 /* k */,256*1024 /* max matches */,30 /* min band score */,50 /* min length */);
 
@@ -634,6 +640,10 @@ int main(int argc, char * argv[])
 						bool const cross = libmaus2::bambam::BamAlignment::cross(a_algn,*(b_correct_seq_correct_strand[z]));
 						anycross = anycross || cross;
 
+						anyOverlapBW->writeAlignment(*b_correct_seq_correct_strand[z]);
+						if ( cross )
+							anyCrossedBW->writeAlignment(*b_correct_seq_correct_strand[z]);
+
 						if ( cross )
 							Vcross_ref.push_back(b_correct_seq_correct_strand[z]->getReferenceInterval());
 						Voverlap_ref.push_back(b_correct_seq_correct_strand[z]->getReferenceInterval());
@@ -663,6 +673,10 @@ int main(int argc, char * argv[])
 
 						bool const cross = libmaus2::bambam::BamAlignment::cross(a_algn,*(b_primary_correct_seq_correct_strand[z]));
 						primaryanycross = primaryanycross || cross;
+
+						primaryOverlapBW->writeAlignment(*b_primary_correct_seq_correct_strand[z]);
+						if ( cross )
+							primaryCrossedBW->writeAlignment(*b_primary_correct_seq_correct_strand[z]);
 
 						if ( cross )
 							Vprimarycross_ref.push_back(b_primary_correct_seq_correct_strand[z]->getReferenceInterval());
@@ -976,10 +990,11 @@ int main(int argc, char * argv[])
 		std::cerr << "[S] mdiam avg " << mdiamacc/mdiamcnt << std::endl;
 		std::cerr << "[S] mdiam sum avg " << mdiamsum / g_read_allbases << std::endl;
 
+		std::string nooverlapfastafn = nooverlapOut->fastafilename;
 		nooverlapOut.reset();
 		if ( ! (FAG.p) )
 		{
-
+			libmaus2::aio::FileRemoval::removeFile(nooverlapfastafn);
 		}
 	}
 	catch(std::exception const & ex)

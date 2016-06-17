@@ -22,6 +22,26 @@
 #include <libmaus2/fastx/FastAReader.hpp>
 #include <libmaus2/util/PrefixSums.hpp>
 
+struct AlignmentReaderWrapper
+{
+	libmaus2::bambam::BamDecoder & dec_a;
+	int64_t id;
+
+	AlignmentReaderWrapper(libmaus2::bambam::BamDecoder & rdec_a)
+	: dec_a(rdec_a), id(-1)
+	{
+
+	}
+
+	bool readAlignment()
+	{
+		bool const ok = dec_a.readAlignment();
+		if ( ok )
+			++id;
+		return ok;
+	}
+};
+
 int main(int argc, char * argv[])
 {
 	try
@@ -35,14 +55,17 @@ int main(int argc, char * argv[])
 		uint64_t const k = arg.uniqueArgPresent("k") ? arg.getUnsignedNumericArg<uint64_t>("k") : 20;
 
 		libmaus2::bambam::BamDecoder dec_a(fn_a);
+		AlignmentReaderWrapper ARW(dec_a);
 		libmaus2::bambam::BamAlignment const & algn = dec_a.getAlignment();
 		libmaus2::autoarray::AutoArray<libmaus2::bambam::cigar_operation> Acigop;
 		libmaus2::lcs::AlignmentTraceContainer ATC;
 
-		while ( ((!S.size()) || (found < S.size())) && dec_a.readAlignment() )
+		while ( ((!S.size()) || (found < S.size())) && ARW.readAlignment() )
 		{
 			if ( algn.isMapped() )
 			{
+				bool printedname = false;
+
 				if ( (!S.size()) || (S.find(algn.getName()) != S.end()) )
 				{
 					uint32_t const numcig = algn.getCigarOperations(Acigop);
@@ -85,10 +108,23 @@ int main(int argc, char * argv[])
 
 								if ( cnt >= k )
 								{
-									if ( algn.isReverse() )
-										std::cout << cnt << "\t" << seqlen-apos << "\t" << readlength-bpos << std::endl;
-									else
-										std::cout << cnt << "\t" << apos-cnt << "\t" << bpos-cnt << std::endl;
+									if ( ! printedname )
+									{
+										std::cout
+											<< "refid=" << algn.getRefID()
+											<< "\trefname=" << dec_a.getHeader().getRefIDName(algn.getRefID())
+											<< "\trefseqlen=" << seqlen
+											<< "\trefalnlen=" << algn.getReferenceLength()
+											<< "\treadid=" << ARW.id
+											<< "\treadname=" << algn.getName()
+											<< "\treadlen=" << readlength
+											<< "\tdir=" << (algn.isReverse()?"reco":"forw")
+											<< std::endl;
+										if ( algn.getAuxString("er") )
+											std::cout << algn.getAuxString("er") << std::endl;
+									}
+									std::cout << cnt << "\t" << apos-cnt << "\t" << bpos-cnt << std::endl;
+									printedname = true;
 								}
 								break;
 							}

@@ -915,6 +915,7 @@ int main(int argc, char * argv[])
 						<< " poverlap " << primaryanyoverlap
 						<< " read_cross_bases " << read_cross_bases << " " << (static_cast<double>(read_cross_bases) / a_algn.getCoveredReadInterval().diameter())
 						<< " ovl_read_bases " << ovl_read_bases << " " << (static_cast<double>(ovl_read_bases) / a_algn.getCoveredReadInterval().diameter())
+						<< " pcscs " << b_primary_correct_seq_correct_strand.size()
 						<< " " << static_cast<double>(g_read_overlapbases) / g_read_allbases
 						<< " " << static_cast<double>(g_read_cross_bases) / g_read_allbases
 						<< " " << static_cast<double>(g_ref_overlapbases) / g_ref_allbases

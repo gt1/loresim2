@@ -83,6 +83,7 @@ int main(int argc, char ** argv)
 		double const startlowprob = arginfo.getValue<double>("startlowprob", 0.7);
 		// number of random bases appended at front and back
 		uint64_t const randlen = arginfo.getValueUnsignedNumeric<uint64_t>("randlen",500);
+		bool const placerandom = arginfo.getValueUnsignedNumeric<uint64_t>("placerandom",0);
 
 		// noise spiker object
 		libmaus2::random::DNABaseNoiseSpiker DBNS(substrate, delrate, insrate, inshomopolrate, eratelow, eratehigh, eratelowstddev, eratehighstddev, keeplowstate, keephighstate, startlowprob);
@@ -141,18 +142,26 @@ int main(int argc, char ** argv)
 				typedef std::pair<uint64_t,uint64_t> upair;
 				std::vector<upair> poslenvec;
 
-				bool const strand = libmaus2::random::Random::rand8() & 1;
+				if ( placerandom )
+					while ( pp < seq.size() )
+					{
+						int64_t len = libmaus2::random::GaussianRandom::random(readlenstddev,readlenavg);
+						len = std::min(len,static_cast<int64_t>(seq.size()));
+						uint64_t p = libmaus2::random::Random::rand64() % (seq.size()-len+1);
+						poslenvec.push_back(upair(p,len));
+						pp += len;
+					}
+				else
+					while ( pp < seq.size() )
+					{
+						int64_t len = libmaus2::random::GaussianRandom::random(readlenstddev,readlenavg);
 
-				while ( pp < seq.size() )
-				{
-					int64_t len = libmaus2::random::GaussianRandom::random(readlenstddev,readlenavg);
+						len = std::min(len,static_cast<int64_t>(seq.size()-pp));
 
-					len = std::min(len,static_cast<int64_t>(seq.size()-pp));
+						poslenvec.push_back(upair(pp,len));
 
-					poslenvec.push_back(upair(pp,len));
-
-					pp += len;
-				}
+						pp += len;
+					}
 
 				for ( uint64_t z = 0; z < poslenvec.size(); ++z )
 				{
@@ -160,6 +169,7 @@ int main(int argc, char ** argv)
 						continue;
 					uint64_t const len = poslenvec[z].second;
 					uint64_t const pos = poslenvec[z].first;
+					bool const strand = libmaus2::random::Random::rand8() & 1;
 					bool rc = !strand;
 					std::string sub = seq.substr(pos,len);
 

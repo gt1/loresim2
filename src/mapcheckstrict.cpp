@@ -331,6 +331,9 @@ int main(int argc, char * argv[])
 		libmaus2::bambam::BamWriter::unique_ptr_type primaryOverlapBW(new libmaus2::bambam::BamWriter("primary_overlap.bam",header_a));
 		libmaus2::bambam::BamWriter::unique_ptr_type anyOverlapBW(new libmaus2::bambam::BamWriter("any_overlap.bam",header_a));
 
+		libmaus2::bambam::BamWriter::unique_ptr_type primaryNoCrossBW(new libmaus2::bambam::BamWriter("primary_no_cross.bam",header_a));
+		libmaus2::bambam::BamWriter::unique_ptr_type primaryNoOverlapBW(new libmaus2::bambam::BamWriter("primary_no_overlap.bam",header_a));
+
 		libmaus2::lcs::NNPLocalAligner LA(6 /* bucket log */,14 /* k */,256*1024 /* max matches */,30 /* min band score */,50 /* min length */);
 
 		libmaus2::autoarray::AutoArray<libmaus2::bambam::cigar_operation> cigop;
@@ -689,6 +692,11 @@ int main(int argc, char * argv[])
 					}
 				}
 
+				if ( ! primaryanyoverlap )
+					primaryNoOverlapBW->writeAlignment(a_algn);
+				if ( ! primaryanycross )
+					primaryNoCrossBW->writeAlignment(a_algn);
+
 				if ( primaryanyoverlap )
 					g_primaryanyoverlap += 1;
 				else
@@ -924,6 +932,17 @@ int main(int argc, char * argv[])
 						<< " " << static_cast<double>(g_read_cross_bases_primary) / g_read_allbases
 						<< " " << static_cast<double>(g_ref_overlapbases_primary) / g_ref_allbases
 						<< " " << static_cast<double>(g_ref_cross_bases_primary) / g_ref_allbases
+						<< " " << skipa
+						<< " " << skipb
+						<< " " << unmapped
+						<< " " << g_anycross
+						<< " " << g_nocross
+						<< " " << g_anyoverlap
+						<< " " << g_nooverlap
+						<< " " << g_primaryanycross
+						<< " " << g_primarynocross
+						<< " " << g_primaryanyoverlap
+						<< " " << g_primarynooverlap
 						<< std::endl;
 				}
 

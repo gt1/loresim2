@@ -1,3 +1,9 @@
+loresim2 (0.0.8-1) unstable; urgency=medium
+
+  * print more info in progress report of mapcheckstrict 
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 18 Jul 2016 16:51:13 +0200
+
 loresim2 (0.0.7-1) unstable; urgency=medium
 
   * updates in mapcheckstrict:

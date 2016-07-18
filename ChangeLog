@@ -1,3 +1,11 @@
+loresim2 (0.0.7-1) unstable; urgency=medium
+
+  * updates in mapcheckstrict:
+  * create primary_no_cross.bam and primary_no_overlap.bam files add 
+  * skipa,skipb,unmapped,g_anycross,g_nocross,g_anyoverlap,g_nooverlap,g_primaryanycross,g_primarynocross,g_primaryanyoverlap and g_primarynooverlap in progress lines
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 18 Jul 2016 14:41:55 +0200
+
 loresim2 (0.0.6-1) unstable; urgency=medium
 
   * bump libmaus2 version to 2.0.217

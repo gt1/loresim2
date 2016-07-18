@@ -935,14 +935,14 @@ int main(int argc, char * argv[])
 						<< " " << skipa
 						<< " " << skipb
 						<< " " << unmapped
-						<< " " << g_anycross
-						<< " " << g_nocross
-						<< " " << g_anyoverlap
-						<< " " << g_nooverlap
-						<< " " << g_primaryanycross
-						<< " " << g_primarynocross
-						<< " " << g_primaryanyoverlap
-						<< " " << g_primarynooverlap
+						<< " " << g_anycross << " (" << static_cast<double>(g_anycross)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_nocross << " (" << static_cast<double>(g_nocross)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_anyoverlap << " (" << static_cast<double>(g_anyoverlap)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_nooverlap << " (" << static_cast<double>(g_nooverlap)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_primaryanycross << " (" << static_cast<double>(g_primaryanycross)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_primarynocross << " (" << static_cast<double>(g_primarynocross)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_primaryanyoverlap << " (" << static_cast<double>(g_primaryanyoverlap)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_primarynooverlap << " (" << static_cast<double>(g_primarynooverlap)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
 						<< std::endl;
 				}
 

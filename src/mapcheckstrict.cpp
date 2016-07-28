@@ -737,8 +737,6 @@ int main(int argc, char * argv[])
 				for ( uint64_t z = 0; z < b_mapped.size(); ++z )
 					if (
 						!b_mapped[z]->isSecondary()
-						&&
-						!b_mapped[z]->isSupplementary()
 					)
 						b_primary.push_back(b_mapped[z]);
 				std::vector<libmaus2::bambam::BamAlignment::shared_ptr_type> b_primary_correct_seq;

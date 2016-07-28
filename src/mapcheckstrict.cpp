@@ -222,6 +222,139 @@ struct MissingOutput
 	}
 };
 
+#include <libmaus2/util/stringFunctions.hpp>
+
+
+struct RepeatLine
+{
+	uint64_t s;
+	uint64_t p;
+	uint64_t l;
+	double e;
+
+	RepeatLine()
+	{
+
+	}
+
+	RepeatLine(
+		uint64_t rs,
+		uint64_t rp,
+		uint64_t rl,
+		double re
+	) : s(rs), p(rp), l(rl), e(re)
+	{
+
+	}
+
+	int64_t getFrom() const
+	{
+		return p;
+	}
+
+	int64_t getTo() const
+	{
+		return p+l;
+	}
+
+	libmaus2::math::IntegerInterval<int64_t> getInterval() const
+	{
+		return libmaus2::math::IntegerInterval<int64_t>(getFrom(),getTo()-1);
+	}
+
+	libmaus2::math::IntegerInterval<int64_t> getOverlap(libmaus2::bambam::BamAlignment const & A) const
+	{
+		return A.getReferenceInterval().intersection(getInterval());
+	}
+
+	static uint64_t parseInt(std::string const & s)
+	{
+		std::istringstream istr(s);
+		uint64_t i;
+		istr >> i;
+
+		if ( istr.bad() || istr.peek() != std::istream::traits_type::eof() )
+		{
+			libmaus2::exception::LibMausException lme;
+			lme.getStream() << "Cannot parse " << s << " as integer" << std::endl;
+			lme.finish();
+			throw lme;
+		}
+
+		return i;
+	}
+
+	static double parseDouble(std::string const & s)
+	{
+		std::istringstream istr(s);
+		double i;
+		istr >> i;
+
+		if ( istr.bad() || istr.peek() != std::istream::traits_type::eof() )
+		{
+			libmaus2::exception::LibMausException lme;
+			lme.getStream() << "Cannot parse " << s << " as double" << std::endl;
+			lme.finish();
+			throw lme;
+		}
+
+		return i;
+	}
+
+	RepeatLine(std::string const & q)
+	{
+		std::deque<std::string> const T = libmaus2::util::stringFunctions::tokenize<std::string>(q,",");
+
+		if ( T.size() == 4 )
+		{
+			s = parseInt(T[0]);
+			p = parseInt(T[1]);
+			l = parseInt(T[2]);
+			e = parseDouble(T[3]);
+		}
+		else
+		{
+			libmaus2::exception::LibMausException lme;
+			lme.getStream() << "Cannot parse " << q << " as RepeatLine" << std::endl;
+			lme.finish();
+			throw lme;
+		}
+	}
+};
+
+std::ostream & operator<<(std::ostream & out, RepeatLine const & RL)
+{
+	out << "RepeatLine(s=" << RL.s << ",p=" << RL.p << ",l=" << RL.l << ",e=" << RL.e << ")";
+	return out;
+}
+
+
+std::vector < RepeatLine > loadRepeatLines(std::string const & fn)
+{
+	libmaus2::aio::InputStreamInstance ISI(fn);
+	std::vector < RepeatLine > VRL;
+
+	while ( ISI )
+	{
+		std::string line;
+		std::getline(ISI,line);
+		if ( line.size() )
+		{
+			RepeatLine RL(line);
+			//std::cerr << RL << std::endl;
+			VRL.push_back(RL);
+		}
+	}
+
+	std::cerr << "[V] loaded " << VRL.size() << " repeat lines" << std::endl;
+
+	return VRL;
+}
+
+#include <libmaus2/geometry/RangeSet.hpp>
+#include <libmaus2/fastx/FastAIndex.hpp>
+#include <libmaus2/rank/DNARank.hpp>
+
 int main(int argc, char * argv[])
 {
 	try
@@ -236,6 +369,60 @@ int main(int argc, char * argv[])
 
 		// error fragments we count at all
 		double const errthres = arg.uniqueArgPresent("e") ? arg.getParsedArg<double>("e") : 0.15;
+		std::string const repmapfn = arg.uniqueArgPresent("R") ? arg["R"] : std::string();
+		std::string const indexfn = arg.uniqueArgPresent("I") ? arg["I"] : std::string();
+		std::vector <RepeatLine> VRL;
+		std::map < uint64_t , libmaus2::geometry::RangeSet<RepeatLine>::shared_ptr_type > remapM;
+		uint64_t const mapk = arg.uniqueArgPresent("k") ? arg.getParsedArg<uint64_t>("k") : 20;
+
+		libmaus2::rank::DNARank::unique_ptr_type Prank;
+		if ( indexfn.size() )
+		{
+			std::cerr << "[V] loading index...";
+			libmaus2::rank::DNARank::unique_ptr_type Trank(libmaus2::rank::DNARank::loadFromRunLength(indexfn, 32/*num threads */));
+			Prank = UNIQUE_PTR_MOVE(Trank);
+			std::cerr << "done\n";
+		}
+
+		std::string const fainame = arg.uniqueArgPresent("F") ? arg["F"] : std::string();
+                libmaus2::fastx::FastAIndex::unique_ptr_type Pindex;
+                if ( fainame.size() )
+                {
+	                libmaus2::fastx::FastAIndex::unique_ptr_type Tindex(libmaus2::fastx::FastAIndex::load(fainame));
+			Pindex = UNIQUE_PTR_MOVE(Tindex);
+		}
+                // libmaus2::fastx::FastAIndex const & FAI = *Pindex;
+
+
+		if ( repmapfn.size() )
+		{
+			VRL = loadRepeatLines(repmapfn);
+			uint64_t l = 0;
+			while ( l < VRL.size() )
+			{
+				uint64_t h = l+1;
+				while ( h < VRL.size() && VRL[h].s == VRL[l].s )
+					++h;
+
+				uint64_t const s = VRL[l].s;
+
+				assert ( Pindex );
+				assert ( s < Pindex->size() );
+
+				libmaus2::geometry::RangeSet<RepeatLine>::shared_ptr_type P(
+					new libmaus2::geometry::RangeSet<RepeatLine>((*Pindex)[s].length)
+				);
+
+				for ( uint64_t i = l; i < h; ++i )
+				{
+					P->insert(VRL[i]);
+				}
+
+				remapM[s] = P;
+
+				l = h;
+			}
+		}
 		// allow this many low error bases to be missed without reporting
 		uint64_t const lowerrallow = arg.uniqueArgPresent("L") ? arg.getUnsignedNumericArg<uint64_t>("L") : 150;
 
@@ -409,6 +596,12 @@ int main(int argc, char * argv[])
 				assert ( Valgn_a.size() == 1 );
 				libmaus2::bambam::BamAlignment const & a_algn = *(Valgn_a.front());
 
+				libmaus2::geometry::RangeSet<RepeatLine> const * RS =
+					(
+						remapM.find(a_algn.getRefID()) != remapM.end()
+					)
+					? remapM.find(a_algn.getRefID())->second.get() : 0;
+
 				if ( FAG.p )
 				{
 					assert ( FAG.pattern.getShortStringId() == a_algn.getName() );
@@ -423,6 +616,11 @@ int main(int argc, char * argv[])
 
 				libmaus2::lcs::AlignmentTraceContainer ATC;
 				libmaus2::bambam::CigarStringParser::cigarToTrace(cigop.begin(),cigop.begin()+numcig,ATC);
+
+				std::vector < std::pair<uint64_t,uint64_t> > kmatches = ATC.getKMatchOffsets(
+					mapk,a_algn.getPos() - a_algn.getFrontDel(),a_algn.getFrontSoftClipping()/*offb*/
+				);
+
 
 				std::pair<uint64_t,uint64_t> P_PP = ATC.prefixPositive();
 				std::pair<uint64_t,uint64_t> P_SP = ATC.suffixPositive();
@@ -695,7 +893,42 @@ int main(int argc, char * argv[])
 				if ( ! primaryanyoverlap )
 					primaryNoOverlapBW->writeAlignment(a_algn);
 				if ( ! primaryanycross )
+				{
 					primaryNoCrossBW->writeAlignment(a_algn);
+
+					if ( RS )
+					{
+						uint64_t const left = a_algn.getPos();
+						uint64_t const right = left + a_algn.getReferenceLength();
+						std::cerr << "MISSED PRIMARY [" << left << "," << right << ") ";
+
+						double repcnt = 0;
+						double repavgcnt = 0;
+						uint64_t repavgden = 0;
+
+
+						RepeatLine RL(a_algn.getRefID(),left,right-left,0.0/*e */);
+
+						std::vector<RepeatLine const *> const VV = RS->search(RL);
+						// libmaus2::geometry::RangeSet<RepeatLine> const * RS
+
+						std::cerr << VV.size() << " ";
+
+						for ( uint64_t i = 0; i < VV.size(); ++i )
+						{
+							libmaus2::math::IntegerInterval<int64_t> O = VV[i]->getOverlap(a_algn);
+							int64_t const diam = O.diameter();
+							repcnt += diam;
+							repavgcnt += VV[i]->e * diam;
+							repavgden += diam;
+
+							std::cerr << (*(VV[i]));
+						}
+
+						std::cerr << " rep=" << repcnt / (right-left) << " e=" << repavgcnt/repavgden << std::endl;
+					}
+
+				}
 
 				if ( primaryanyoverlap )
 					g_primaryanyoverlap += 1;
@@ -876,7 +1109,52 @@ int main(int argc, char * argv[])
 				if ( anycross )
 					g_anycross += 1;
 				else
+				{
 					g_nocross += 1;
+
+					if ( RS )
+					{
+						uint64_t const left = a_algn.getPos();
+						uint64_t const right = left + a_algn.getReferenceLength();
+						std::cerr << "MISSED ANY [" << left << "," << right << ") ";
+
+						double repcnt = 0;
+						double repavgcnt = 0;
+						uint64_t repavgden = 0;
+
+						RepeatLine RL(a_algn.getRefID(),left,right-left,0.0/*e */);
+
+						std::vector<RepeatLine const *> const VV = RS->search(RL);
+						// libmaus2::geometry::RangeSet<RepeatLine> const * RS
+
+						std::cerr << VV.size() << " ";
+
+						for ( uint64_t i = 0; i < VV.size(); ++i )
+						{
+							libmaus2::math::IntegerInterval<int64_t> O = VV[i]->getOverlap(a_algn);
+							int64_t const diam = O.diameter();
+							repcnt += diam;
+							repavgcnt += VV[i]->e * diam;
+							repavgden += diam;
+
+							std::cerr << (*(VV[i]));
+						}
+
+						std::cerr << " rep=" << repcnt / (right-left) << " e=" << repavgcnt/repavgden << std::endl;
+
+						if ( Prank )
+						{
+							std::cerr << "match ";
+							for ( uint64_t i = 0; i < kmatches.size(); ++i )
+							{
+								uint64_t const rpos = kmatches[i].second;
+								std::pair<uint64_t,uint64_t> const P = Prank->backwardSearch(readdata.begin()+rpos,mapk);
+								std::cerr << P.second-P.first << ((i+1 < kmatches.size())?",":"");
+							}
+							std::cerr << std::endl;
+						}
+					}
+				}
 
 				if ( anyoverlap )
 					g_anyoverlap += 1;

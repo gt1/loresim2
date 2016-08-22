@@ -1,3 +1,9 @@
+loresim2 (0.0.11-1) unstable; urgency=medium
+
+  * make writing of output files optional in mapcheckstrict 
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 22 Aug 2016 14:11:41 +0200
+
 loresim2 (0.0.10-1) unstable; urgency=medium
 
   * keep only checking of secondary flag for detecting primary alignments

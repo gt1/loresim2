@@ -196,29 +196,37 @@ struct MissingOutput
 	typedef libmaus2::util::unique_ptr<this_type>::type unique_ptr_type;
 
 	std::string const bamfilename;
-	libmaus2::bambam::BamWriter BW;
+	libmaus2::bambam::BamWriter::unique_ptr_type BW;
 	std::string const fastafilename;
 	libmaus2::aio::OutputStreamInstance::unique_ptr_type OSI;
 
-	MissingOutput(std::string const & filename, libmaus2::bambam::BamHeader const & header)
+	MissingOutput(std::string const & filename, libmaus2::bambam::BamHeader const & header, bool const open)
 	:
 		bamfilename(filename+".bam"),
-		BW(bamfilename,header),
-		fastafilename(filename+".fasta"),
-		OSI(new libmaus2::aio::OutputStreamInstance(fastafilename))
+		fastafilename(filename+".fasta")
 	{
+		if ( open )
+		{
+			libmaus2::bambam::BamWriter::unique_ptr_type tBW(new libmaus2::bambam::BamWriter(bamfilename,header));
+			BW = UNIQUE_PTR_MOVE(tBW);
 
+			libmaus2::aio::OutputStreamInstance::unique_ptr_type tOSI(new libmaus2::aio::OutputStreamInstance(fastafilename));
+			OSI = UNIQUE_PTR_MOVE(tOSI);
+		}
 	}
 
 	void put(libmaus2::bambam::BamAlignment const & algn, libmaus2::fastx::Pattern const & pattern)
 	{
-		BW.writeAlignment(algn);
-		(*OSI) << pattern;
+		if ( BW )
+			BW->writeAlignment(algn);
+		if ( OSI )
+			(*OSI) << pattern;
 	}
 
 	void put(libmaus2::bambam::BamAlignment const & algn)
 	{
-		BW.writeAlignment(algn);
+		if ( BW )
+			BW->writeAlignment(algn);
 	}
 };
 
@@ -374,6 +382,7 @@ int main(int argc, char * argv[])
 		std::vector <RepeatLine> VRL;
 		std::map < uint64_t , libmaus2::geometry::RangeSet<RepeatLine>::shared_ptr_type > remapM;
 		uint64_t const mapk = arg.uniqueArgPresent("k") ? arg.getParsedArg<uint64_t>("k") : 20;
+		bool const writealgncat = arg.uniqueArgPresent("writealgncat") ? arg.getParsedArg<uint64_t>("writealgncat") : false;
 
 		libmaus2::rank::DNARank::unique_ptr_type Prank;
 		if ( indexfn.size() )
@@ -511,15 +520,41 @@ int main(int argc, char * argv[])
 		libmaus2::bambam::BamDecoder dec_b(fn_b);
 		// libmaus2::bambam::BamHeader const & header_b = dec_b.getHeader();
 
-		MissingOutput::unique_ptr_type nooverlapOut(new MissingOutput("no_overlap_out",header_a));
+		struct ConditionalBamOutput
+		{
+			libmaus2::bambam::BamWriter::unique_ptr_type pout;
 
-		libmaus2::bambam::BamWriter::unique_ptr_type primaryCrossedBW(new libmaus2::bambam::BamWriter("primary_crossed.bam",header_a));
-		libmaus2::bambam::BamWriter::unique_ptr_type anyCrossedBW(new libmaus2::bambam::BamWriter("any_crossed.bam",header_a));
-		libmaus2::bambam::BamWriter::unique_ptr_type primaryOverlapBW(new libmaus2::bambam::BamWriter("primary_overlap.bam",header_a));
-		libmaus2::bambam::BamWriter::unique_ptr_type anyOverlapBW(new libmaus2::bambam::BamWriter("any_overlap.bam",header_a));
+			ConditionalBamOutput(std::string const & fn, libmaus2::bambam::BamHeader const & rheader, bool const open)
+			{
+				if ( open )
+				{
+					libmaus2::bambam::BamWriter::unique_ptr_type tout(
+						new libmaus2::bambam::BamWriter(fn,rheader)
+					);
+					pout = UNIQUE_PTR_MOVE(tout);
+				}
+			}
 
-		libmaus2::bambam::BamWriter::unique_ptr_type primaryNoCrossBW(new libmaus2::bambam::BamWriter("primary_no_cross.bam",header_a));
-		libmaus2::bambam::BamWriter::unique_ptr_type primaryNoOverlapBW(new libmaus2::bambam::BamWriter("primary_no_overlap.bam",header_a));
+			void writeAlignment(libmaus2::bambam::BamAlignment const & algn)
+			{
+				if ( pout )
+					pout->writeAlignment(algn);
+			}
+		};
+
+		MissingOutput::unique_ptr_type nooverlapOut(new MissingOutput("no_overlap_out",header_a,writealgncat));
+		ConditionalBamOutput primaryCrossedBW("primary_crossed.bam",header_a,writealgncat);
+		// libmaus2::bambam::BamWriter::unique_ptr_type primaryCrossedBW(new libmaus2::bambam::BamWriter("primary_crossed.bam",header_a));
+		ConditionalBamOutput anyCrossedBW("any_crossed.bam",header_a,writealgncat);
+		//libmaus2::bambam::BamWriter::unique_ptr_type anyCrossedBW(new libmaus2::bambam::BamWriter("any_crossed.bam",header_a));
+		ConditionalBamOutput primaryOverlapBW("primary_overlap.bam",header_a,writealgncat);
+		//libmaus2::bambam::BamWriter::unique_ptr_type primaryOverlapBW(new libmaus2::bambam::BamWriter("primary_overlap.bam",header_a));
+		ConditionalBamOutput anyOverlapBW("any_overlap.bam",header_a,writealgncat);
+		// libmaus2::bambam::BamWriter::unique_ptr_type anyOverlapBW(new libmaus2::bambam::BamWriter("any_overlap.bam",header_a));
+		ConditionalBamOutput primaryNoCrossBW("primary_no_cross.bam",header_a,writealgncat);
+		// libmaus2::bambam::BamWriter::unique_ptr_type primaryNoCrossBW(new libmaus2::bambam::BamWriter("primary_no_cross.bam",header_a));
+		ConditionalBamOutput primaryNoOverlapBW("primary_no_overlap.bam",header_a,writealgncat);
+		// libmaus2::bambam::BamWriter::unique_ptr_type primaryNoOverlapBW(new libmaus2::bambam::BamWriter("primary_no_overlap.bam",header_a));
 
 		libmaus2::lcs::NNPLocalAligner LA(6 /* bucket log */,14 /* k */,256*1024 /* max matches */,30 /* min band score */,50 /* min length */);
 
@@ -839,9 +874,9 @@ int main(int argc, char * argv[])
 						bool const cross = libmaus2::bambam::BamAlignment::cross(a_algn,*(b_correct_seq_correct_strand[z]));
 						anycross = anycross || cross;
 
-						anyOverlapBW->writeAlignment(*b_correct_seq_correct_strand[z]);
+						anyOverlapBW.writeAlignment(*b_correct_seq_correct_strand[z]);
 						if ( cross )
-							anyCrossedBW->writeAlignment(*b_correct_seq_correct_strand[z]);
+							anyCrossedBW.writeAlignment(*b_correct_seq_correct_strand[z]);
 
 						if ( cross )
 							Vcross_ref.push_back(b_correct_seq_correct_strand[z]->getReferenceInterval());
@@ -873,9 +908,9 @@ int main(int argc, char * argv[])
 						bool const cross = libmaus2::bambam::BamAlignment::cross(a_algn,*(b_primary_correct_seq_correct_strand[z]));
 						primaryanycross = primaryanycross || cross;
 
-						primaryOverlapBW->writeAlignment(*b_primary_correct_seq_correct_strand[z]);
+						primaryOverlapBW.writeAlignment(*b_primary_correct_seq_correct_strand[z]);
 						if ( cross )
-							primaryCrossedBW->writeAlignment(*b_primary_correct_seq_correct_strand[z]);
+							primaryCrossedBW.writeAlignment(*b_primary_correct_seq_correct_strand[z]);
 
 						if ( cross )
 							Vprimarycross_ref.push_back(b_primary_correct_seq_correct_strand[z]->getReferenceInterval());
@@ -889,10 +924,10 @@ int main(int argc, char * argv[])
 				}
 
 				if ( ! primaryanyoverlap )
-					primaryNoOverlapBW->writeAlignment(a_algn);
+					primaryNoOverlapBW.writeAlignment(a_algn);
 				if ( ! primaryanycross )
 				{
-					primaryNoCrossBW->writeAlignment(a_algn);
+					primaryNoCrossBW.writeAlignment(a_algn);
 
 					if ( RS )
 					{

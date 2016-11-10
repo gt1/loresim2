@@ -84,6 +84,7 @@ int main(int argc, char ** argv)
 		// number of random bases appended at front and back
 		uint64_t const randlen = arginfo.getValueUnsignedNumeric<uint64_t>("randlen",500);
 		bool const placerandom = arginfo.getValueUnsignedNumeric<uint64_t>("placerandom",0);
+		bool const nthres = arginfo.getValueUnsignedNumeric<uint64_t>("nthres",0);
 
 		// noise spiker object
 		libmaus2::random::DNABaseNoiseSpiker DBNS(substrate, delrate, insrate, inshomopolrate, eratelow, eratehigh, eratelowstddev, eratehighstddev, keeplowstate, keephighstate, startlowprob);
@@ -177,7 +178,7 @@ int main(int argc, char ** argv)
 					for ( uint64_t i = 0; i < sub.size(); ++i )
 						if ( sub[i] == 'N' )
 							ncnt++;
-					if ( ncnt > 5 )
+					if ( ncnt > nthres )
 						continue;
 
 					libmaus2::random::DNABaseNoiseSpiker::ErrorStats E;

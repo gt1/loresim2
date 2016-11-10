@@ -1,3 +1,9 @@
+loresim2 (0.0.12-1) unstable; urgency=medium
+
+  * add nthres parameter in longreadgen
+
+ -- German Tischler <tischler@mpi-cbg.de>  Thu, 10 Nov 2016 14:07:04 +0100
+
 loresim2 (0.0.11-1) unstable; urgency=medium
 
   * make writing of output files optional in mapcheckstrict 

@@ -1,3 +1,63 @@
+loresim2 (0.0.12-1) unstable; urgency=medium
+
+  * add nthres parameter in longreadgen
+
+ -- German Tischler <tischler@mpi-cbg.de>  Thu, 10 Nov 2016 14:07:04 +0100
+
+loresim2 (0.0.11-1) unstable; urgency=medium
+
+  * make writing of output files optional in mapcheckstrict 
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 22 Aug 2016 14:11:41 +0200
+
+loresim2 (0.0.10-1) unstable; urgency=medium
+
+  * keep only checking of secondary flag for detecting primary alignments
+
+ -- German Tischler <tischler@mpi-cbg.de>  Thu, 28 Jul 2016 16:50:08 +0200
+
+loresim2 (0.0.9-1) unstable; urgency=medium
+
+  * add repeat checking in mapcheckstrict 
+
+ -- German Tischler <tischler@mpi-cbg.de>  Thu, 28 Jul 2016 10:26:52 +0200
+
+loresim2 (0.0.8-1) unstable; urgency=medium
+
+  * print more info in progress report of mapcheckstrict 
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 18 Jul 2016 16:51:13 +0200
+
+loresim2 (0.0.7-1) unstable; urgency=medium
+
+  * updates in mapcheckstrict:
+  * create primary_no_cross.bam and primary_no_overlap.bam files add 
+  * skipa,skipb,unmapped,g_anycross,g_nocross,g_anyoverlap,g_nooverlap,g_primaryanycross,g_primarynocross,g_primaryanyoverlap and g_primarynooverlap in progress lines
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 18 Jul 2016 14:41:55 +0200
+
+loresim2 (0.0.6-1) unstable; urgency=medium
+
+  * bump libmaus2 version to 2.0.217
+  * randomly select strand for each read in longreadgen (instead of choosing once per ref seq traversal)
+  * implement random read placement as alternative to splitting of ref seq in longreadgen
+  * print number of primary alignments on correct sequence/stand in verbose output in mapcheckstrict
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 04 Jul 2016 13:38:33 +0200
+
+loresim2 (0.0.5-1) unstable; urgency=medium
+
+  * print more information in printmatchingkmers
+  * write crossing and overlapping alignments to files in mapcheckstrict
+
+ -- German Tischler <tischler@mpi-cbg.de>  Fri, 17 Jun 2016 10:39:18 +0200
+
+loresim2 (0.0.4-1) unstable; urgency=medium
+
+  * cleanup and output missing reads in mapcheckstrict even if not fasta reads file is given
+
+ -- German Tischler <tischler@mpi-cbg.de>  Thu, 16 Jun 2016 13:25:15 +0200
+
 loresim2 (0.0.3-1) unstable; urgency=medium
 
   * various improvements in mapcheckstrict (self alignment/tandem repeat checks, high error rate intervals)

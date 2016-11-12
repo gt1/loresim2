@@ -195,21 +195,173 @@ struct MissingOutput
 	typedef MissingOutput this_type;
 	typedef libmaus2::util::unique_ptr<this_type>::type unique_ptr_type;
 
-	libmaus2::bambam::BamWriter BW;
-	libmaus2::aio::OutputStreamInstance OSI;
+	std::string const bamfilename;
+	libmaus2::bambam::BamWriter::unique_ptr_type BW;
+	std::string const fastafilename;
+	libmaus2::aio::OutputStreamInstance::unique_ptr_type OSI;
 
-	MissingOutput(std::string const & filename, libmaus2::bambam::BamHeader const & header)
-	: BW(filename+".bam",header), OSI(filename+".fasta")
+	MissingOutput(std::string const & filename, libmaus2::bambam::BamHeader const & header, bool const open)
+	:
+		bamfilename(filename+".bam"),
+		fastafilename(filename+".fasta")
 	{
+		if ( open )
+		{
+			libmaus2::bambam::BamWriter::unique_ptr_type tBW(new libmaus2::bambam::BamWriter(bamfilename,header));
+			BW = UNIQUE_PTR_MOVE(tBW);
 
+			libmaus2::aio::OutputStreamInstance::unique_ptr_type tOSI(new libmaus2::aio::OutputStreamInstance(fastafilename));
+			OSI = UNIQUE_PTR_MOVE(tOSI);
+		}
 	}
 
 	void put(libmaus2::bambam::BamAlignment const & algn, libmaus2::fastx::Pattern const & pattern)
 	{
-		BW.writeAlignment(algn);
-		OSI << pattern;
+		if ( BW )
+			BW->writeAlignment(algn);
+		if ( OSI )
+			(*OSI) << pattern;
+	}
+
+	void put(libmaus2::bambam::BamAlignment const & algn)
+	{
+		if ( BW )
+			BW->writeAlignment(algn);
 	}
 };
+
+#include <libmaus2/util/stringFunctions.hpp>
+
+
+struct RepeatLine
+{
+	uint64_t s;
+	uint64_t p;
+	uint64_t l;
+	double e;
+
+	RepeatLine()
+	{
+
+	}
+
+	RepeatLine(
+		uint64_t rs,
+		uint64_t rp,
+		uint64_t rl,
+		double re
+	) : s(rs), p(rp), l(rl), e(re)
+	{
+
+	}
+
+	int64_t getFrom() const
+	{
+		return p;
+	}
+
+	int64_t getTo() const
+	{
+		return p+l;
+	}
+
+	libmaus2::math::IntegerInterval<int64_t> getInterval() const
+	{
+		return libmaus2::math::IntegerInterval<int64_t>(getFrom(),getTo()-1);
+	}
+
+	libmaus2::math::IntegerInterval<int64_t> getOverlap(libmaus2::bambam::BamAlignment const & A) const
+	{
+		return A.getReferenceInterval().intersection(getInterval());
+	}
+
+	static uint64_t parseInt(std::string const & s)
+	{
+		std::istringstream istr(s);
+		uint64_t i;
+		istr >> i;
+
+		if ( istr.bad() || istr.peek() != std::istream::traits_type::eof() )
+		{
+			libmaus2::exception::LibMausException lme;
+			lme.getStream() << "Cannot parse " << s << " as integer" << std::endl;
+			lme.finish();
+			throw lme;
+		}
+
+		return i;
+	}
+
+	static double parseDouble(std::string const & s)
+	{
+		std::istringstream istr(s);
+		double i;
+		istr >> i;
+
+		if ( istr.bad() || istr.peek() != std::istream::traits_type::eof() )
+		{
+			libmaus2::exception::LibMausException lme;
+			lme.getStream() << "Cannot parse " << s << " as double" << std::endl;
+			lme.finish();
+			throw lme;
+		}
+
+		return i;
+	}
+
+	RepeatLine(std::string const & q)
+	{
+		std::deque<std::string> const T = libmaus2::util::stringFunctions::tokenize<std::string>(q,",");
+
+		if ( T.size() == 4 )
+		{
+			s = parseInt(T[0]);
+			p = parseInt(T[1]);
+			l = parseInt(T[2]);
+			e = parseDouble(T[3]);
+		}
+		else
+		{
+			libmaus2::exception::LibMausException lme;
+			lme.getStream() << "Cannot parse " << q << " as RepeatLine" << std::endl;
+			lme.finish();
+			throw lme;
+		}
+	}
+};
+
+std::ostream & operator<<(std::ostream & out, RepeatLine const & RL)
+{
+	out << "RepeatLine(s=" << RL.s << ",p=" << RL.p << ",l=" << RL.l << ",e=" << RL.e << ")";
+	return out;
+}
+
+
+std::vector < RepeatLine > loadRepeatLines(std::string const & fn)
+{
+	libmaus2::aio::InputStreamInstance ISI(fn);
+	std::vector < RepeatLine > VRL;
+
+	while ( ISI )
+	{
+		std::string line;
+		std::getline(ISI,line);
+		if ( line.size() )
+		{
+			RepeatLine RL(line);
+			//std::cerr << RL << std::endl;
+			VRL.push_back(RL);
+		}
+	}
+
+	std::cerr << "[V] loaded " << VRL.size() << " repeat lines" << std::endl;
+
+	return VRL;
+}
+
+#include <libmaus2/geometry/RangeSet.hpp>
+#include <libmaus2/fastx/FastAIndex.hpp>
+#include <libmaus2/rank/DNARank.hpp>
 
 int main(int argc, char * argv[])
 {
@@ -225,6 +377,61 @@ int main(int argc, char * argv[])
 
 		// error fragments we count at all
 		double const errthres = arg.uniqueArgPresent("e") ? arg.getParsedArg<double>("e") : 0.15;
+		std::string const repmapfn = arg.uniqueArgPresent("R") ? arg["R"] : std::string();
+		std::string const indexfn = arg.uniqueArgPresent("I") ? arg["I"] : std::string();
+		std::vector <RepeatLine> VRL;
+		std::map < uint64_t , libmaus2::geometry::RangeSet<RepeatLine>::shared_ptr_type > remapM;
+		uint64_t const mapk = arg.uniqueArgPresent("k") ? arg.getParsedArg<uint64_t>("k") : 20;
+		bool const writealgncat = arg.uniqueArgPresent("writealgncat") ? arg.getParsedArg<uint64_t>("writealgncat") : false;
+
+		libmaus2::rank::DNARank::unique_ptr_type Prank;
+		if ( indexfn.size() )
+		{
+			std::cerr << "[V] loading index...";
+			libmaus2::rank::DNARank::unique_ptr_type Trank(libmaus2::rank::DNARank::loadFromRunLength(indexfn, 32/*num threads */));
+			Prank = UNIQUE_PTR_MOVE(Trank);
+			std::cerr << "done\n";
+		}
+
+		std::string const fainame = arg.uniqueArgPresent("F") ? arg["F"] : std::string();
+                libmaus2::fastx::FastAIndex::unique_ptr_type Pindex;
+                if ( fainame.size() )
+                {
+	                libmaus2::fastx::FastAIndex::unique_ptr_type Tindex(libmaus2::fastx::FastAIndex::load(fainame));
+			Pindex = UNIQUE_PTR_MOVE(Tindex);
+		}
+                // libmaus2::fastx::FastAIndex const & FAI = *Pindex;
+
+
+		if ( repmapfn.size() )
+		{
+			VRL = loadRepeatLines(repmapfn);
+			uint64_t l = 0;
+			while ( l < VRL.size() )
+			{
+				uint64_t h = l+1;
+				while ( h < VRL.size() && VRL[h].s == VRL[l].s )
+					++h;
+
+				uint64_t const s = VRL[l].s;
+
+				assert ( Pindex );
+				assert ( s < Pindex->size() );
+
+				libmaus2::geometry::RangeSet<RepeatLine>::shared_ptr_type P(
+					new libmaus2::geometry::RangeSet<RepeatLine>((*Pindex)[s].length)
+				);
+
+				for ( uint64_t i = l; i < h; ++i )
+				{
+					P->insert(VRL[i]);
+				}
+
+				remapM[s] = P;
+
+				l = h;
+			}
+		}
 		// allow this many low error bases to be missed without reporting
 		uint64_t const lowerrallow = arg.uniqueArgPresent("L") ? arg.getUnsignedNumericArg<uint64_t>("L") : 150;
 
@@ -245,6 +452,7 @@ int main(int argc, char * argv[])
 				Mref[id++] = pattern.spattern;
 			}
 		}
+
 
 		#if 0
 		std::string const ovl_a = arg[2];
@@ -310,9 +518,43 @@ int main(int argc, char * argv[])
 		libmaus2::bambam::BamDecoder dec_a(fn_a);
 		libmaus2::bambam::BamHeader const & header_a = dec_a.getHeader();
 		libmaus2::bambam::BamDecoder dec_b(fn_b);
-		libmaus2::bambam::BamHeader const & header_b = dec_b.getHeader();
+		// libmaus2::bambam::BamHeader const & header_b = dec_b.getHeader();
 
-		MissingOutput::unique_ptr_type nooverlapOut(new MissingOutput("no_overlap_out",header_a));
+		struct ConditionalBamOutput
+		{
+			libmaus2::bambam::BamWriter::unique_ptr_type pout;
+
+			ConditionalBamOutput(std::string const & fn, libmaus2::bambam::BamHeader const & rheader, bool const open)
+			{
+				if ( open )
+				{
+					libmaus2::bambam::BamWriter::unique_ptr_type tout(
+						new libmaus2::bambam::BamWriter(fn,rheader)
+					);
+					pout = UNIQUE_PTR_MOVE(tout);
+				}
+			}
+
+			void writeAlignment(libmaus2::bambam::BamAlignment const & algn)
+			{
+				if ( pout )
+					pout->writeAlignment(algn);
+			}
+		};
+
+		MissingOutput::unique_ptr_type nooverlapOut(new MissingOutput("no_overlap_out",header_a,writealgncat));
+		ConditionalBamOutput primaryCrossedBW("primary_crossed.bam",header_a,writealgncat);
+		// libmaus2::bambam::BamWriter::unique_ptr_type primaryCrossedBW(new libmaus2::bambam::BamWriter("primary_crossed.bam",header_a));
+		ConditionalBamOutput anyCrossedBW("any_crossed.bam",header_a,writealgncat);
+		//libmaus2::bambam::BamWriter::unique_ptr_type anyCrossedBW(new libmaus2::bambam::BamWriter("any_crossed.bam",header_a));
+		ConditionalBamOutput primaryOverlapBW("primary_overlap.bam",header_a,writealgncat);
+		//libmaus2::bambam::BamWriter::unique_ptr_type primaryOverlapBW(new libmaus2::bambam::BamWriter("primary_overlap.bam",header_a));
+		ConditionalBamOutput anyOverlapBW("any_overlap.bam",header_a,writealgncat);
+		// libmaus2::bambam::BamWriter::unique_ptr_type anyOverlapBW(new libmaus2::bambam::BamWriter("any_overlap.bam",header_a));
+		ConditionalBamOutput primaryNoCrossBW("primary_no_cross.bam",header_a,writealgncat);
+		// libmaus2::bambam::BamWriter::unique_ptr_type primaryNoCrossBW(new libmaus2::bambam::BamWriter("primary_no_cross.bam",header_a));
+		ConditionalBamOutput primaryNoOverlapBW("primary_no_overlap.bam",header_a,writealgncat);
+		// libmaus2::bambam::BamWriter::unique_ptr_type primaryNoOverlapBW(new libmaus2::bambam::BamWriter("primary_no_overlap.bam",header_a));
 
 		libmaus2::lcs::NNPLocalAligner LA(6 /* bucket log */,14 /* k */,256*1024 /* max matches */,30 /* min band score */,50 /* min length */);
 
@@ -362,7 +604,7 @@ int main(int argc, char * argv[])
 
 		double mdiamsum = 0;
 
-		uint64_t aid = 0;
+		// uint64_t aid = 0;
 
 		while ( Valgn_a.size() && Valgn_b.size() )
 		{
@@ -389,6 +631,12 @@ int main(int argc, char * argv[])
 				assert ( Valgn_a.size() == 1 );
 				libmaus2::bambam::BamAlignment const & a_algn = *(Valgn_a.front());
 
+				libmaus2::geometry::RangeSet<RepeatLine> const * RS =
+					(
+						remapM.find(a_algn.getRefID()) != remapM.end()
+					)
+					? remapM.find(a_algn.getRefID())->second.get() : 0;
+
 				if ( FAG.p )
 				{
 					assert ( FAG.pattern.getShortStringId() == a_algn.getName() );
@@ -404,13 +652,18 @@ int main(int argc, char * argv[])
 				libmaus2::lcs::AlignmentTraceContainer ATC;
 				libmaus2::bambam::CigarStringParser::cigarToTrace(cigop.begin(),cigop.begin()+numcig,ATC);
 
+				std::vector < std::pair<uint64_t,uint64_t> > kmatches = ATC.getKMatchOffsets(
+					mapk,a_algn.getPos() - a_algn.getFrontDel(),a_algn.getFrontSoftClipping()/*offb*/
+				);
+
+
 				std::pair<uint64_t,uint64_t> P_PP = ATC.prefixPositive();
 				std::pair<uint64_t,uint64_t> P_SP = ATC.suffixPositive();
 
 				// error intervals in reference coordinates
 				char const * c_eintv = a_algn.getAuxString("er");
 				// error intervals in query coordinates
-				char const * c_rintv = a_algn.getAuxString("ee");
+				//char const * c_rintv = a_algn.getAuxString("ee");
 
 				std::vector<Intv> Vintv = c_eintv ? Intv::parse(std::string(c_eintv)) : std::vector<Intv>();
 				// std::vector<Intv> Rintv = c_rintv ? Intv::parse(std::string(c_rintv)) : std::vector<Intv>();
@@ -467,7 +720,7 @@ int main(int argc, char * argv[])
 					RI.from -= frontdel;
 					RI.to -= frontdel;
 					assert ( RI.from >= 0 );
-					assert ( RI.to <= ref.size() );
+					assert ( RI.to <= static_cast<int64_t>(ref.size()) );
 
 					std::string const sub = ref.substr(RI.from,RI.to+1-RI.from);
 
@@ -519,8 +772,6 @@ int main(int argc, char * argv[])
 				for ( uint64_t z = 0; z < b_mapped.size(); ++z )
 					if (
 						!b_mapped[z]->isSecondary()
-						&&
-						!b_mapped[z]->isSupplementary()
 					)
 						b_primary.push_back(b_mapped[z]);
 				std::vector<libmaus2::bambam::BamAlignment::shared_ptr_type> b_primary_correct_seq;
@@ -623,6 +874,10 @@ int main(int argc, char * argv[])
 						bool const cross = libmaus2::bambam::BamAlignment::cross(a_algn,*(b_correct_seq_correct_strand[z]));
 						anycross = anycross || cross;
 
+						anyOverlapBW.writeAlignment(*b_correct_seq_correct_strand[z]);
+						if ( cross )
+							anyCrossedBW.writeAlignment(*b_correct_seq_correct_strand[z]);
+
 						if ( cross )
 							Vcross_ref.push_back(b_correct_seq_correct_strand[z]->getReferenceInterval());
 						Voverlap_ref.push_back(b_correct_seq_correct_strand[z]->getReferenceInterval());
@@ -653,6 +908,10 @@ int main(int argc, char * argv[])
 						bool const cross = libmaus2::bambam::BamAlignment::cross(a_algn,*(b_primary_correct_seq_correct_strand[z]));
 						primaryanycross = primaryanycross || cross;
 
+						primaryOverlapBW.writeAlignment(*b_primary_correct_seq_correct_strand[z]);
+						if ( cross )
+							primaryCrossedBW.writeAlignment(*b_primary_correct_seq_correct_strand[z]);
+
 						if ( cross )
 							Vprimarycross_ref.push_back(b_primary_correct_seq_correct_strand[z]->getReferenceInterval());
 						Vprimaryoverlap_ref.push_back(b_primary_correct_seq_correct_strand[z]->getReferenceInterval());
@@ -662,6 +921,46 @@ int main(int argc, char * argv[])
 						Vprimaryoverlap_read.push_back(b_primary_correct_seq_correct_strand[z]->getCoveredReadInterval());
 
 					}
+				}
+
+				if ( ! primaryanyoverlap )
+					primaryNoOverlapBW.writeAlignment(a_algn);
+				if ( ! primaryanycross )
+				{
+					primaryNoCrossBW.writeAlignment(a_algn);
+
+					if ( RS )
+					{
+						uint64_t const left = a_algn.getPos();
+						uint64_t const right = left + a_algn.getReferenceLength();
+						std::cerr << "MISSED PRIMARY [" << left << "," << right << ") ";
+
+						double repcnt = 0;
+						double repavgcnt = 0;
+						uint64_t repavgden = 0;
+
+
+						RepeatLine RL(a_algn.getRefID(),left,right-left,0.0/*e */);
+
+						std::vector<RepeatLine const *> const VV = RS->search(RL);
+						// libmaus2::geometry::RangeSet<RepeatLine> const * RS
+
+						std::cerr << VV.size() << " ";
+
+						for ( uint64_t i = 0; i < VV.size(); ++i )
+						{
+							libmaus2::math::IntegerInterval<int64_t> O = VV[i]->getOverlap(a_algn);
+							int64_t const diam = O.diameter();
+							repcnt += diam;
+							repavgcnt += VV[i]->e * diam;
+							repavgden += diam;
+
+							std::cerr << (*(VV[i]));
+						}
+
+						std::cerr << " rep=" << repcnt / (right-left) << " e=" << repavgcnt/repavgden << std::endl;
+					}
+
 				}
 
 				if ( primaryanyoverlap )
@@ -715,7 +1014,7 @@ int main(int argc, char * argv[])
 						// allow front/back clipping of this number of bases without reporting them as missing
 						uint64_t const frontbackclipallow = 20;
 						// allow this many low error bases to be missed without reporting
-						uint64_t const lowerrallow = 150;
+						//uint64_t const lowerrallow = 150;
 
 						if ( (front || back) && (notCrossed_ref[j].diameter() <= static_cast<int64_t>(frontbackclipallow)) )
 							continue;
@@ -843,16 +1142,64 @@ int main(int argc, char * argv[])
 				if ( anycross )
 					g_anycross += 1;
 				else
+				{
 					g_nocross += 1;
+
+					if ( RS )
+					{
+						uint64_t const left = a_algn.getPos();
+						uint64_t const right = left + a_algn.getReferenceLength();
+						std::cerr << "MISSED ANY [" << left << "," << right << ") ";
+
+						double repcnt = 0;
+						double repavgcnt = 0;
+						uint64_t repavgden = 0;
+
+						RepeatLine RL(a_algn.getRefID(),left,right-left,0.0/*e */);
+
+						std::vector<RepeatLine const *> const VV = RS->search(RL);
+						// libmaus2::geometry::RangeSet<RepeatLine> const * RS
+
+						std::cerr << VV.size() << " ";
+
+						for ( uint64_t i = 0; i < VV.size(); ++i )
+						{
+							libmaus2::math::IntegerInterval<int64_t> O = VV[i]->getOverlap(a_algn);
+							int64_t const diam = O.diameter();
+							repcnt += diam;
+							repavgcnt += VV[i]->e * diam;
+							repavgden += diam;
+
+							std::cerr << (*(VV[i]));
+						}
+
+						std::cerr << " rep=" << repcnt / (right-left) << " e=" << repavgcnt/repavgden << std::endl;
+
+						if ( Prank )
+						{
+							std::cerr << "match ";
+							for ( uint64_t i = 0; i < kmatches.size(); ++i )
+							{
+								uint64_t const rpos = kmatches[i].second;
+								std::pair<uint64_t,uint64_t> const P = Prank->backwardSearch(readdata.begin()+rpos,mapk);
+								std::cerr << P.second-P.first << ((i+1 < kmatches.size())?",":"");
+							}
+							std::cerr << std::endl;
+						}
+					}
+				}
 
 				if ( anyoverlap )
 					g_anyoverlap += 1;
 				else
 					g_nooverlap += 1;
 
-				if ( ! anyoverlap && FAG.p )
+				if ( ! anyoverlap )
 				{
-					nooverlapOut->put(a_algn,FAG.pattern);
+					if ( FAG.p )
+						nooverlapOut->put(a_algn,FAG.pattern);
+					else
+						nooverlapOut->put(a_algn);
 				}
 
 				g_read_cross_bases += read_cross_bases;
@@ -887,6 +1234,7 @@ int main(int argc, char * argv[])
 						<< " poverlap " << primaryanyoverlap
 						<< " read_cross_bases " << read_cross_bases << " " << (static_cast<double>(read_cross_bases) / a_algn.getCoveredReadInterval().diameter())
 						<< " ovl_read_bases " << ovl_read_bases << " " << (static_cast<double>(ovl_read_bases) / a_algn.getCoveredReadInterval().diameter())
+						<< " pcscs " << b_primary_correct_seq_correct_strand.size()
 						<< " " << static_cast<double>(g_read_overlapbases) / g_read_allbases
 						<< " " << static_cast<double>(g_read_cross_bases) / g_read_allbases
 						<< " " << static_cast<double>(g_ref_overlapbases) / g_ref_allbases
@@ -895,6 +1243,17 @@ int main(int argc, char * argv[])
 						<< " " << static_cast<double>(g_read_cross_bases_primary) / g_read_allbases
 						<< " " << static_cast<double>(g_ref_overlapbases_primary) / g_ref_allbases
 						<< " " << static_cast<double>(g_ref_cross_bases_primary) / g_ref_allbases
+						<< " " << skipa
+						<< " " << skipb
+						<< " " << unmapped
+						<< " " << g_anycross << " (" << static_cast<double>(g_anycross)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_nocross << " (" << static_cast<double>(g_nocross)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_anyoverlap << " (" << static_cast<double>(g_anyoverlap)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_nooverlap << " (" << static_cast<double>(g_nooverlap)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_primaryanycross << " (" << static_cast<double>(g_primaryanycross)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_primarynocross << " (" << static_cast<double>(g_primarynocross)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_primaryanyoverlap << " (" << static_cast<double>(g_primaryanyoverlap)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
+						<< " " << g_primarynooverlap << " (" << static_cast<double>(g_primarynooverlap)/static_cast<double>(g_anycross+g_nocross+skipa+skipb+unmapped) << ")"
 						<< std::endl;
 				}
 
@@ -961,6 +1320,13 @@ int main(int argc, char * argv[])
 
 		std::cerr << "[S] mdiam avg " << mdiamacc/mdiamcnt << std::endl;
 		std::cerr << "[S] mdiam sum avg " << mdiamsum / g_read_allbases << std::endl;
+
+		std::string nooverlapfastafn = nooverlapOut->fastafilename;
+		nooverlapOut.reset();
+		if ( ! (FAG.p) )
+		{
+			libmaus2::aio::FileRemoval::removeFile(nooverlapfastafn);
+		}
 	}
 	catch(std::exception const & ex)
 	{

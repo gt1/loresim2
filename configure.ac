@@ -1,4 +1,4 @@
-AC_INIT(loresim2,0.0.3,[tischler@mpi-cbg.de],[loresim2],[http://www.mpi-cbg.de])
+AC_INIT(loresim2,0.0.12,[tischler@mpi-cbg.de],[loresim2],[http://www.mpi-cbg.de])
 AC_CANONICAL_SYSTEM
 AC_PROG_LIBTOOL
 
@@ -127,7 +127,7 @@ if test ! -z "${with_libmaus2}" ; then
 	fi
 fi
 
-PKG_CHECK_MODULES([libmaus2],[libmaus2 >= 2.0.22])
+PKG_CHECK_MODULES([libmaus2],[libmaus2 >= 2.0.239])
 
 if test ! -z "${with_libmaus2}" ; then
 	if test ! -z "${PKGCONFIGPATHSAVE}" ; then

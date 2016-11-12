@@ -37,3 +37,7 @@ configure
 ltmain.sh
 *~
 */*~
+src/printmatchingkmers
+src/printmatchingkmers-printmatchingkmers.o
+bumpversion.sh
+recomp.sh

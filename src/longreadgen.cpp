@@ -21,6 +21,7 @@
 #include <libmaus2/random/DNABaseNoiseSpiker.hpp>
 #include <libmaus2/util/ArgInfo.hpp>
 #include <libmaus2/fastx/FastAIndex.hpp>
+#include <libmaus2/fastx/FastAIndexGenerator.hpp>
 #include "Intv.hpp"
 
 std::string getRandom(uint64_t const randlen)
@@ -48,6 +49,9 @@ int main(int argc, char ** argv)
 		libmaus2::util::ArgInfo const arginfo(argc,argv);
 		uint64_t randseed = arginfo.getValueUnsignedNumeric<uint64_t>("randomseed",time(0));
 		libmaus2::random::Random::setup(randseed);
+
+		libmaus2::bambam::BamSeqEncodeTable const seqenc;
+		::libmaus2::fastx::UCharBuffer UB;
 
 		// substitution error fraction
 		double substrate = arginfo.getValue<double>("substrate",.2);
@@ -94,6 +98,7 @@ int main(int argc, char ** argv)
 
 		// construct name of FAI file
 		std::string const fainame = reffn + ".fai";
+		libmaus2::fastx::FastAIndexGenerator::generate(reffn,fainame,1);
 		// load FAI index for reference FastA
 		libmaus2::fastx::FastAIndex::unique_ptr_type PFAI(libmaus2::fastx::FastAIndex::load(fainame));
 		// open output fasta file
@@ -233,36 +238,34 @@ int main(int argc, char ** argv)
 					namestr << 'L' << runid << '/' << (wellid++) << '/' << 0 << '_' << rfasta.size();
 					std::string const name = namestr.str();
 
-					faOSI << '>' << name << " RQ=0.851" << " POS=[" << pos << "] REFID=[" << seqid << "] RC=[" << rc << "]\n";
-					for ( uint64_t i = 0; i < rfasta.size(); )
-					{
-						uint64_t toprint = std::min(static_cast<int>(rfasta.size()-i),static_cast<int>(80));
-						faOSI.write(rfasta.c_str()+i,toprint);
-						i += toprint;
-						faOSI.put('\n');
-					}
-
-					::libmaus2::fastx::UCharBuffer UB;
-					libmaus2::bambam::BamSeqEncodeTable seqenc;
+					UB.reset();
 					std::vector<char> Vqual(r.size(),'H');
 
-					libmaus2::bambam::BamAlignmentEncoderBase::encodeAlignment
-					(
-						UB,
-						seqenc,
-						name,
-						seqid,
-						pos + delshift,
-						255,
-						rc ? libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_FREVERSE : 0,
-						cig,
-						-1,
-						-1,
-						0,
-						r,
-						std::string(Vqual.begin(),Vqual.end()),
-						33,true
-					);
+					try
+					{
+						libmaus2::bambam::BamAlignmentEncoderBase::encodeAlignment
+						(
+							UB,
+							seqenc,
+							name,
+							seqid,
+							pos + delshift,
+							255,
+							rc ? libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_FREVERSE : 0,
+							cig,
+							-1,
+							-1,
+							0,
+							r,
+							std::string(Vqual.begin(),Vqual.end()),
+							33,true
+						);
+					}
+					catch(std::exception const & lme)
+					{
+						std::cerr << lme.what() << std::endl;
+						continue;
+					}
 
 					if ( errintv.size() )
 					{
@@ -286,6 +289,14 @@ int main(int argc, char ** argv)
 						);
 					}
 
+					faOSI << '>' << name << " RQ=0.851" << " POS=[" << pos << "] REFID=[" << seqid << "] RC=[" << rc << "]\n";
+					for ( uint64_t i = 0; i < rfasta.size(); )
+					{
+						uint64_t toprint = std::min(static_cast<int>(rfasta.size()-i),static_cast<int>(80));
+						faOSI.write(rfasta.c_str()+i,toprint);
+						i += toprint;
+						faOSI.put('\n');
+					}
 					writer->writeBamBlock(UB.buffer,UB.length);
 				}
 			}

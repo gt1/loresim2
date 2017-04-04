@@ -278,6 +278,12 @@ int main(int argc, char ** argv)
 						continue;
 					}
 
+					::libmaus2::bambam::MdStringComputationContext mdnmcontext;
+					libmaus2::bambam::BamAlignmentDecoderBase::calculateMd(UB.buffer,UB.length,mdnmcontext,seq.begin()+pos /* itref */);
+
+					libmaus2::bambam::BamAlignmentEncoderBase::putAuxString(UB,"MD",mdnmcontext.md.get());
+					libmaus2::bambam::BamAlignmentEncoderBase::putAuxNumber(UB,"NM",'i',mdnmcontext.nm);
+
 					if ( errintv.size() )
 					{
 						libmaus2::bambam::BamAlignmentEncoderBase::putAuxString(

@@ -241,7 +241,11 @@ int main(int argc, char ** argv)
 					}
 
 					std::ostringstream padcigstr;
-					padcigstr << randlen << "S" << cig << randlen << "S";
+					if ( randlen )
+						padcigstr << randlen << "S";
+					padcigstr << cig;
+					if ( randlen )
+						padcigstr << randlen << "S";
 					cig = padcigstr.str();
 
 					std::ostringstream namestr;

@@ -72,7 +72,7 @@ int main(int argc, char ** argv)
 		double eratehighstddev = arginfo.getValue<double>("eratehighstddev",0.04);
 
 		// drop rate
-		double const droprate = arginfo.getValue<double>("droprate",0.01);
+		double const droprate = arginfo.getValue<double>("droprate",0.00);
 		// number of traversals per input sequence
 		uint64_t const numtraversals = arginfo.getValueUnsignedNumeric<uint64_t>("numtraversals",1);
 		// average read length

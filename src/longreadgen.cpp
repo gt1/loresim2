@@ -90,6 +90,8 @@ int main(int argc, char ** argv)
 		bool const placerandom = arginfo.getValueUnsignedNumeric<uint64_t>("placerandom",0);
 		bool const nthres = arginfo.getValueUnsignedNumeric<uint64_t>("nthres",0);
 
+		uint64_t const minlen = arginfo.getValueUnsignedNumeric<uint64_t>("minlen",0);
+
 		// noise spiker object
 		libmaus2::random::DNABaseNoiseSpiker DBNS(substrate, delrate, insrate, inshomopolrate, eratelow, eratehigh, eratelowstddev, eratehighstddev, keeplowstate, keephighstate, startlowprob);
 
@@ -174,6 +176,9 @@ int main(int argc, char ** argv)
 					if ( libmaus2::random::UniformUnitRandom::uniformUnitRandom() < droprate )
 						continue;
 					uint64_t const len = poslenvec[z].second;
+					if ( len < minlen )
+						continue;
+
 					uint64_t const pos = poslenvec[z].first;
 					bool const strand = libmaus2::random::Random::rand8() & 1;
 					bool rc = !strand;

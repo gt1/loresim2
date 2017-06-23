@@ -1,3 +1,9 @@
+loresim2 (0.0.14-1) unstable; urgency=medium
+
+  * add minlen parameter in longreadgen
+
+ -- German Tischler <tischler@mpi-cbg.de>  Fri, 23 Jun 2017 11:08:29 +0200
+
 loresim2 (0.0.13-1) unstable; urgency=medium
 
   * set default drop rate to 0

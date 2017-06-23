@@ -82,7 +82,7 @@ int main(int argc, char ** argv)
 		// probability to stay in low error rate mode
 		double const keeplowstate = arginfo.getValue<double>("keeplowstate", 0.9998);
 		// probability to stay in high error rate mode
-		double const keephighstate = arginfo.getValue<double>("keeplowstate", 0.995);
+		double const keephighstate = arginfo.getValue<double>("keephighstate", 0.995);
 		// probability to start in low error rate mode
 		double const startlowprob = arginfo.getValue<double>("startlowprob", 0.7);
 		// number of random bases appended at front and back

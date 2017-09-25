@@ -1,3 +1,11 @@
+loresim2 (0.0.15-1) unstable; urgency=medium
+
+  * update libmaus2 version
+  * add estimatelognormal program
+  * update documentation and use log normal length distribution in longreadgen
+
+ -- German Tischler <tischler@mpi-cbg.de>  Mon, 25 Sep 2017 13:39:33 +0200
+
 loresim2 (0.0.14-1) unstable; urgency=medium
 
   * add minlen parameter in longreadgen

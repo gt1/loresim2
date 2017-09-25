@@ -22,6 +22,7 @@
 #include <libmaus2/util/ArgInfo.hpp>
 #include <libmaus2/fastx/FastAIndex.hpp>
 #include <libmaus2/fastx/FastAIndexGenerator.hpp>
+#include <libmaus2/random/LogNormalRandom.hpp>
 #include "Intv.hpp"
 
 std::string getRandom(uint64_t const randlen)
@@ -71,14 +72,16 @@ int main(int argc, char ** argv)
 		// std dev for high error rate
 		double eratehighstddev = arginfo.getValue<double>("eratehighstddev",0.04);
 
+		// 8581.35	6953.55
+
 		// drop rate
 		double const droprate = arginfo.getValue<double>("droprate",0.00);
 		// number of traversals per input sequence
 		uint64_t const numtraversals = arginfo.getValueUnsignedNumeric<uint64_t>("numtraversals",1);
 		// average read length
-		double const readlenavg = arginfo.getValue<double>("readlenavg", 15000);
+		double const readlenavg = arginfo.getValue<double>("readlenavg", 8500);
 		// read length std dev
-		double const readlenstddev = arginfo.getValue<double>("readlenstddev", 3000);
+		double const readlenstddev = arginfo.getValue<double>("readlenstddev", 6953);
 		// probability to stay in low error rate mode
 		double const keeplowstate = arginfo.getValue<double>("keeplowstate", 0.9998);
 		// probability to stay in high error rate mode
@@ -86,20 +89,29 @@ int main(int argc, char ** argv)
 		// probability to start in low error rate mode
 		double const startlowprob = arginfo.getValue<double>("startlowprob", 0.7);
 		// number of random bases appended at front and back
-		uint64_t const randlen = arginfo.getValueUnsignedNumeric<uint64_t>("randlen",500);
+		uint64_t const randlen = arginfo.getValueUnsignedNumeric<uint64_t>("randlen",0);
 		bool const placerandom = arginfo.getValueUnsignedNumeric<uint64_t>("placerandom",0);
 		bool const nthres = arginfo.getValueUnsignedNumeric<uint64_t>("nthres",0);
 
 		uint64_t const minlen = arginfo.getValueUnsignedNumeric<uint64_t>("minlen",0);
 
+		std::pair<double,double> const lognormalP = libmaus2::random::LogNormalRandom::computeParameters(readlenavg,readlenstddev);
+		// std::floor(libmaus2::random::LogNormalRandom::random(lognormalP.second, lognormalP.first) + 0.5);
+
 		// noise spiker object
 		libmaus2::random::DNABaseNoiseSpiker DBNS(substrate, delrate, insrate, inshomopolrate, eratelow, eratehigh, eratelowstddev, eratehighstddev, keeplowstate, keephighstate, startlowprob);
+		
+		if ( arginfo.restargs.size() < 2 )
+		{
+			std::cerr << "usage: " << arginfo.progname << " <text.fa> <out.fasta> >out.bam" << std::endl;
+			return EXIT_FAILURE;
+		}
 
 		// input reference name (FastA format)
 		std::string const reffn = arginfo.restargs.at(0);
 		// output fasta file name
 		std::string const fafn = arginfo.restargs.at(1);
-
+		
 		// construct name of FAI file
 		std::string const fainame = reffn + ".fai";
 		libmaus2::fastx::FastAIndexGenerator::generate(reffn,fainame,1);
@@ -153,7 +165,10 @@ int main(int argc, char ** argv)
 				if ( placerandom )
 					while ( pp < seq.size() )
 					{
-						int64_t len = libmaus2::random::GaussianRandom::random(readlenstddev,readlenavg);
+						int64_t len = -1;
+						while ( len <= 0 )
+							len = std::floor(libmaus2::random::LogNormalRandom::random(lognormalP.second, lognormalP.first) + 0.5);
+							// libmaus2::random::GaussianRandom::random(readlenstddev,readlenavg);
 						len = std::min(len,static_cast<int64_t>(seq.size()));
 						uint64_t p = libmaus2::random::Random::rand64() % (seq.size()-len+1);
 						poslenvec.push_back(upair(p,len));
@@ -162,7 +177,10 @@ int main(int argc, char ** argv)
 				else
 					while ( pp < seq.size() )
 					{
-						int64_t len = libmaus2::random::GaussianRandom::random(readlenstddev,readlenavg);
+						int64_t len = -1;
+						while ( len <= 0 )
+							len = std::floor(libmaus2::random::LogNormalRandom::random(lognormalP.second, lognormalP.first) + 0.5);
+							// libmaus2::random::GaussianRandom::random(readlenstddev,readlenavg);
 
 						len = std::min(len,static_cast<int64_t>(seq.size()-pp));
 

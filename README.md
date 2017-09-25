@@ -42,3 +42,4 @@ The program has the following options
 - eratelowstddev: standard deviation of error rate in low error mode
 - eratehigh: high error mode error rate average
 - eratehighstddev: standard deviation of error rate in high error mode
+- placerandom: randomly place reads instead of performing linear traversal (default 0). This produces output data with uneven coverage following a Poisson distribution.

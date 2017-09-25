@@ -8,7 +8,7 @@ man_MANS = ${MANPAGES}
 
 EXTRA_DIST = ${MANPAGES}
 
-bin_PROGRAMS = longreadgen mapcheckstrict fastareformat printmatchingkmers
+bin_PROGRAMS = longreadgen mapcheckstrict fastareformat printmatchingkmers estimatelognormal
 
 longreadgen_SOURCES = longreadgen.cpp
 longreadgen_LDADD = ${LIBMAUS2LIBS}
@@ -29,3 +29,8 @@ printmatchingkmers_SOURCES = printmatchingkmers.cpp
 printmatchingkmers_LDADD = ${LIBMAUS2LIBS}
 printmatchingkmers_LDFLAGS = ${AM_CPPFLAGS} ${LIBMAUS2CPPFLAGS} ${LIBMAUS2LDFLAGS} ${AM_LDFLAGS}
 printmatchingkmers_CPPFLAGS = ${AM_CPPFLAGS} ${LIBMAUS2CPPFLAGS}
+
+estimatelognormal_SOURCES = estimatelognormal.cpp
+estimatelognormal_LDADD = ${LIBMAUS2LIBS}
+estimatelognormal_LDFLAGS = ${AM_CPPFLAGS} ${LIBMAUS2CPPFLAGS} ${LIBMAUS2LDFLAGS} ${AM_LDFLAGS}
+estimatelognormal_CPPFLAGS = ${AM_CPPFLAGS} ${LIBMAUS2CPPFLAGS}

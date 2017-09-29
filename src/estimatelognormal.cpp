@@ -28,7 +28,7 @@ int main()
 		libmaus2::fastx::StreamFastAReaderWrapper SFAR(std::cin);
 		libmaus2::fastx::StreamFastAReaderWrapper::pattern_type pattern;
 		uint64_t tl = 0;
-		
+
 		while ( SFAR.getNextPatternUnlocked(pattern) )
 		{
 			uint64_t const l = pattern.spattern.size();

@@ -100,7 +100,7 @@ int main(int argc, char ** argv)
 
 		// noise spiker object
 		libmaus2::random::DNABaseNoiseSpiker DBNS(substrate, delrate, insrate, inshomopolrate, eratelow, eratehigh, eratelowstddev, eratehighstddev, keeplowstate, keephighstate, startlowprob);
-		
+
 		if ( arginfo.restargs.size() < 2 )
 		{
 			std::cerr << "usage: " << arginfo.progname << " <text.fa> <out.fasta> >out.bam" << std::endl;
@@ -111,7 +111,7 @@ int main(int argc, char ** argv)
 		std::string const reffn = arginfo.restargs.at(0);
 		// output fasta file name
 		std::string const fafn = arginfo.restargs.at(1);
-		
+
 		// construct name of FAI file
 		std::string const fainame = reffn + ".fai";
 		libmaus2::fastx::FastAIndexGenerator::generate(reffn,fainame,1);

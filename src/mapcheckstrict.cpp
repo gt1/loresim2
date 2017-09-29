@@ -666,6 +666,8 @@ int main(int argc, char * argv[])
 				//char const * c_rintv = a_algn.getAuxString("ee");
 
 				std::vector<Intv> Vintv = c_eintv ? Intv::parse(std::string(c_eintv)) : std::vector<Intv>();
+
+				#if 0
 				// std::vector<Intv> Rintv = c_rintv ? Intv::parse(std::string(c_rintv)) : std::vector<Intv>();
 				std::vector<Intv> Rintv = Intv::computeRIntv(Vintv, a_algn.D.begin());
 
@@ -675,7 +677,7 @@ int main(int argc, char * argv[])
 					Rintv[i].intv.from += a_algn.getFrontSoftClipping();
 					Rintv[i].intv.to += a_algn.getFrontSoftClipping();
 				}
-
+				#endif
 
 				uint64_t frontdel = 0;
 				uint64_t zzz = 0;

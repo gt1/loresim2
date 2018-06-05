@@ -340,6 +340,7 @@ int main(int argc, char ** argv)
 							errintv.c_str()
 						);
 
+						#if 0
 						std::vector<Intv> Vintv = Intv::parse(errintv);
 						std::vector<Intv> Rintv = Intv::computeRIntv(Vintv,UB.buffer);
 
@@ -352,6 +353,7 @@ int main(int argc, char ** argv)
 							"ee",
 							ostr.str().c_str()
 						);
+						#endif
 					}
 
 					libmaus2::bambam::BamAlignmentEncoderBase::putAuxString(UB,"oc",cig.c_str());

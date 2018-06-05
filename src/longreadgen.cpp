@@ -248,7 +248,27 @@ int main(int argc, char ** argv)
 						cig = cig.substr(0,cig.find("]"));
 
 					std::vector<libmaus2::bambam::cigar_operation> Vcigop = libmaus2::bambam::CigarStringParser::parseCigarString(cig);
+					libmaus2::lcs::AlignmentTraceContainer ATC;
+					libmaus2::bambam::CigarStringParser::cigarToTrace(Vcigop.begin(),Vcigop.end(),ATC);
+					uint64_t frontdel = 0;
+					uint64_t backdel = 0;
+					while ( ATC.ta != ATC.te && ATC.ta[0] == libmaus2::lcs::AlignmentTraceContainer::STEP_DEL )
+					{
+						++frontdel;
+						++ATC.ta;
+					}
+					while ( ATC.ta != ATC.te && ATC.te[-1] == libmaus2::lcs::AlignmentTraceContainer::STEP_DEL )
+					{
+						++backdel;
+						--ATC.te;
+					}
 
+					libmaus2::autoarray::AutoArray< std::pair<libmaus2::lcs::AlignmentTraceContainer::step_type,uint64_t> > Aopblocks;
+	                                libmaus2::autoarray::AutoArray<libmaus2::bambam::cigar_operation> Aop;
+	                                uint64_t const ncig = libmaus2::bambam::CigarStringParser::traceToCigar(ATC,Aopblocks,Aop,0,0,0,0);
+	                                std::string const upcig = libmaus2::bambam::CigarStringParser::cigarBlocksToString(Aop.begin(),ncig);
+
+	                                #if 0
 					uint64_t delshift = 0;
 					for (
 						uint64_t ind = 0;
@@ -262,11 +282,12 @@ int main(int argc, char ** argv)
 						if ( Vcigop[ind].first == libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_CDEL )
 							delshift += Vcigop[ind].second;
 					}
+					#endif
 
 					std::ostringstream padcigstr;
 					if ( randlen )
 						padcigstr << randlen << "S";
-					padcigstr << cig;
+					padcigstr << upcig;
 					if ( randlen )
 						padcigstr << randlen << "S";
 					cig = padcigstr.str();
@@ -287,7 +308,7 @@ int main(int argc, char ** argv)
 							seqenc,
 							name,
 							seqid,
-							pos + delshift,
+							pos + frontdel,
 							255,
 							rc ? libmaus2::bambam::BamFlagBase::LIBMAUS2_BAMBAM_FREVERSE : 0,
 							cig,
@@ -332,6 +353,8 @@ int main(int argc, char ** argv)
 							ostr.str().c_str()
 						);
 					}
+
+					libmaus2::bambam::BamAlignmentEncoderBase::putAuxString(UB,"oc",cig.c_str());
 
 					faOSI << '>' << name << " RQ=0.851" << " POS=[" << pos << "] REFID=[" << seqid << "] RC=[" << rc << "]\n";
 					for ( uint64_t i = 0; i < rfasta.size(); )
